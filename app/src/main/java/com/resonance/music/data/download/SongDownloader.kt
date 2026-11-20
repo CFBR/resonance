@@ -202,28 +202,34 @@ class SongDownloader @Inject constructor(
                 completeTransfer(record, relativePath)
                 return@withContext
             }
-            validateDownloadResponse(api.checkDownload(song.id))
+            // No precheck call here, unlike the DownloadManager path: that
+            // precheck exists because DownloadManager saves error pages as
+            // files, while this transfer validates the actual response below
+            // and costs the server only one request.
             val url = apiHelper.getDownloadUrl(song.id)?.toHttpUrl() ?: throw IOException("Sign in to download music.")
             val key = downloadKey(url.newBuilder().query(null).build().toString(), url.queryParameter("u").orEmpty(), song.id)
             if (key != record.key) throw IOException("Your account changed. Try downloading again.")
+            // A slow server can legitimately take longer than the shared 30s read
+            // timeout to start serving a file, so this call gets its own budget.
+            val client = okHttp.newBuilder().readTimeout(3, TimeUnit.MINUTES).build()
             val request = Request.Builder().url(url).build()
-            okHttp.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 val body = response.body ?: throw IOException("The server returned an empty download.")
                 if (!response.isSuccessful) throw IOException("The server refused this download.")
                 val type = body.contentType()
                 if (type?.type == "text" || type?.subtype?.let { "json" in it || "xml" in it } == true ||
                     body.contentLength() == 0L
                 ) throw IOException("The server refused this download. Check your account's download permission.")
-                storage.write(relativePath, mimeForPath(relativePath)) { output ->
+                storage.write(relativePath) { output ->
                     body.byteStream().copyTo(output, 64 * 1024)
                 }
             }
             completeTransfer(record, relativePath)
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             if (library.record(record.key) == record) {
-                library.replace(record, record.copy(error = "Could not download. Check connection, storage, and server permissions."))
+                library.replace(record, record.copy(error = "Could not download. Check connection, storage, and server permissions. (${error.javaClass.simpleName}: ${error.message})"))
             }
         }
     }

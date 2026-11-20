@@ -53,7 +53,7 @@ class OfflineStorageTest {
         assertFalse(storage.exists(path))
 
         val payload = ByteArray(4096) { (it % 251).toByte() }
-        storage.write(path, "audio/flac") { it.write(payload) }
+        storage.write(path) { it.write(payload) }
 
         assertTrue(storage.exists(path))
         val uri = storage.documentUri(path)
@@ -63,7 +63,7 @@ class OfflineStorageTest {
         }
 
         // A second write replaces the file instead of leaving a copy.
-        storage.write(path, "audio/flac") { it.write(ByteArray(8) { 7 }) }
+        storage.write(path) { it.write(ByteArray(8) { 7 }) }
         context.contentResolver.openInputStream(storage.documentUri(path)!!).use { input ->
             assertEquals(8, input!!.readBytes().size)
         }
@@ -76,10 +76,10 @@ class OfflineStorageTest {
     fun aCrashedPartFileIsNotMistakenForTheDownload() = runBlocking {
         val path = "Resonance/TestArtist/TestAlbum/02 - Second [aaaaaaaaaaaa].flac"
         val partPath = "$path.part"
-        storage.write(partPath, "application/octet-stream") { it.write(ByteArray(3)) }
+        storage.write(partPath) { it.write(ByteArray(3)) }
         assertTrue(storage.exists(partPath))
 
-        storage.write(path, "audio/flac") { it.write(ByteArray(16) { 9 }) }
+        storage.write(path) { it.write(ByteArray(16) { 9 }) }
 
         assertFalse(storage.exists(partPath))
         assertTrue(storage.exists(path))

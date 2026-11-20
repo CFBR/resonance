@@ -103,12 +103,17 @@ class OfflineStorage @Inject constructor(
      * to the final name, so an interrupted transfer never looks complete. An
      * existing final file is replaced.
      *
+     * The part file is created as generic bytes: providers append the canonical
+     * extension of the given MIME when the name does not end with it, so a
+     * typed part would become "<name>.part.mp3" and defeat the staging. The
+     * rename sets the real name, and with it the real type.
+     *
      * Only structural work (resolving folders, the rename) runs under the lock.
      * The byte copy runs outside it, so status lookups from the UI keep
      * answering while a large file streams. Transfers are sequential (one
      * worker), so the part file has no competing writer.
      */
-    suspend fun write(relativePath: String, mime: String, writer: (OutputStream) -> Unit): Unit =
+    suspend fun write(relativePath: String, writer: (OutputStream) -> Unit): Unit =
         withContext(Dispatchers.IO) {
             val root = rootUri() ?: throw IOException("No offline storage folder is set")
             val segments = relativeSegments(relativePath)
@@ -124,7 +129,7 @@ class OfflineStorage @Inject constructor(
             val partUri = DocumentsContract.createDocument(
                 resolver,
                 DocumentsContract.buildDocumentUriUsingTree(root, parent.documentId),
-                mime,
+                "application/octet-stream",
                 "$name.part"
             ) ?: throw IOException("The storage refused this download")
             try {

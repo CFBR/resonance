@@ -2,6 +2,25 @@
 
 All notable changes to Resonance will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- An offline storage root (typically the SD card) picked with the system folder
+  picker. When one is set, downloads run in-app into that folder in original
+  quality instead of going to internal storage through DownloadManager.
+- The settings screen shows the chosen folder and can reset to internal storage.
+
+### Fixed
+
+- Stage part files as generic bytes: providers append the MIME's canonical
+  extension to names that lack it, which turned staged "<name>.part" files into
+  untrackable "<name>.part.mp3" files and broke downloads on some devices.
+- Give the download transfer its own read timeout budget, so a slow server can
+  take longer than the shared 30-second limit to start serving a file.
+- Record the actual failure cause on a download error instead of a generic
+  message.
+
 ## [0.8.3] - 2026-11-09
 
 ### Fixed
