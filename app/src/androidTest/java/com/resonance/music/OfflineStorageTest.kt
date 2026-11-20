@@ -18,37 +18,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 
 /**
- * Exercises the real Storage Access Framework on a device: write a file through
- * a tree root, read it back, replace it, and delete it. The tree root points at
- * the app's own external files directory, which needs no user grant.
+ * Exercises OfflineStorage against the real DocumentsContract call paths via
+ * an in-process documents provider. The Samsung provider itself needs a picker
+ * grant and is covered by the manual acceptance pass in the app.
  */
 @RunWith(AndroidJUnit4::class)
 class OfflineStorageTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val authority = "com.android.externalstorage.documents"
 
     private lateinit var settings: SettingsStore
     private lateinit var storage: OfflineStorage
-    private lateinit var root: File
 
     @Before
     fun setUp() = runBlocking {
-        root = File(context.getExternalFilesDir(null), "OfflineStorageTest").apply { mkdirs() }
-        val relative = root.absolutePath.removePrefix("/storage/emulated/0/")
-        val treeUri = DocumentsContract.buildTreeDocumentUri(authority, "primary:$relative")
+        val treeUri = DocumentsContract.buildTreeDocumentUri(FakeDocumentsProvider.AUTHORITY, FakeDocumentsProvider.ROOT_ID)
         settings = SettingsStore(context)
         settings.setOfflineRoot(treeUri.toString())
         settings.offlineRoot.first { it == treeUri.toString() }
         storage = OfflineStorage(context, settings)
+        Unit
     }
 
     @After
     fun tearDown() = runBlocking {
         settings.setOfflineRoot(null)
-        root.deleteRecursively()
+        Unit
     }
 
     @Test
@@ -74,19 +70,18 @@ class OfflineStorageTest {
 
         assertTrue(storage.delete(path))
         assertFalse(storage.exists(path))
-        assertFalse(root.resolve("Resonance/TestArtist/TestAlbum/01 - Probe [0123456789ab].flac").exists())
     }
 
     @Test
     fun aCrashedPartFileIsNotMistakenForTheDownload() = runBlocking {
         val path = "Resonance/TestArtist/TestAlbum/02 - Second [aaaaaaaaaaaa].flac"
-        val part = File(root, "Resonance/TestArtist/TestAlbum/02 - Second [aaaaaaaaaaaa].flac.part")
-        part.parentFile!!.mkdirs()
-        part.writeBytes(byteArrayOf(1, 2, 3))
+        val partPath = "$path.part"
+        storage.write(partPath, "application/octet-stream") { it.write(ByteArray(3)) }
+        assertTrue(storage.exists(partPath))
 
         storage.write(path, "audio/flac") { it.write(ByteArray(16) { 9 }) }
 
-        assertFalse(part.exists())
+        assertFalse(storage.exists(partPath))
         assertTrue(storage.exists(path))
         assertTrue(storage.delete(path))
     }
