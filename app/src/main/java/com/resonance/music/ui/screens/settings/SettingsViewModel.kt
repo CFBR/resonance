@@ -2,6 +2,7 @@ package com.resonance.music.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.resonance.music.data.download.OfflineStorage
 import com.resonance.music.data.repository.AuthRepository
 import com.resonance.music.data.repository.SettingsStore
 import com.resonance.music.ui.theme.AppTheme
@@ -19,14 +20,16 @@ data class SettingsUiState(
     val username: String = "",
     val gaplessPlayback: Boolean = true,
     val scrobbleEnabled: Boolean = true,
-    val currentTheme: AppTheme = AppTheme.NEON_PULSE
+    val currentTheme: AppTheme = AppTheme.NEON_PULSE,
+    val offlineRootName: String? = null
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val settingsStore: SettingsStore,
-    private val themeRepository: ThemeRepository
+    private val themeRepository: ThemeRepository,
+    private val storage: OfflineStorage
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -40,8 +43,23 @@ class SettingsViewModel @Inject constructor(
                 username = creds?.username ?: "",
                 gaplessPlayback = settingsStore.gaplessPlayback.first(),
                 scrobbleEnabled = settingsStore.scrobbleEnabled.first(),
-                currentTheme = themeRepository.currentTheme.first()
+                currentTheme = themeRepository.currentTheme.first(),
+                offlineRootName = storage.rootDisplayName()
             )
+        }
+    }
+
+    fun setOfflineRoot(uri: android.net.Uri) {
+        viewModelScope.launch {
+            runCatching { storage.adoptRoot(uri) }
+            _uiState.value = _uiState.value.copy(offlineRootName = storage.rootDisplayName())
+        }
+    }
+
+    fun clearOfflineRoot() {
+        viewModelScope.launch {
+            runCatching { storage.clearRoot() }
+            _uiState.value = _uiState.value.copy(offlineRootName = null)
         }
     }
 

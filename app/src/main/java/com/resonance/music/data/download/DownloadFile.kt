@@ -34,6 +34,18 @@ internal fun downloadPath(song: SongItem, key: String): String {
     return "Resonance/$artist/$album/$numbering$title [${key.take(12)}]$extension"
 }
 
+/** MIME type for a downloadPath, so the provider labels the file correctly. */
+internal fun mimeForPath(path: String): String = when (path.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
+    "mp3" -> "audio/mpeg"
+    "flac" -> "audio/flac"
+    "m4a" -> "audio/mp4"
+    "ogg" -> "audio/ogg"
+    "opus" -> "audio/opus"
+    "wav" -> "audio/wav"
+    "aac" -> "audio/aac"
+    else -> "application/octet-stream"
+}
+
 private fun safeComponent(value: String?, fallback: String): String {
     val cleaned = value.orEmpty().map { char ->
         if (char.isISOControl() || char in "/\\:*?\"<>|") '_' else char
