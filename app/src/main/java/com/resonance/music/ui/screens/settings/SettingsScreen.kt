@@ -1,5 +1,7 @@
 package com.resonance.music.ui.screens.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -134,6 +136,41 @@ fun SettingsScreen(
                     Switch(checked = uiState.scrobbleEnabled, onCheckedChange = viewModel::setScrobbleEnabled)
                 }
             )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ── Offline storage ──
+            Text(
+                "Offline storage",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            val folderPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocumentTree()
+            ) { uri -> if (uri != null) viewModel.setOfflineRoot(uri) }
+
+            ListItem(
+                headlineContent = { Text("Storage folder") },
+                supportingContent = {
+                    Text(
+                        if (uiState.offlineRootName == null) "Internal storage (default)"
+                        else "Downloads go to ${uiState.offlineRootName}"
+                    )
+                },
+                leadingContent = { Icon(Icons.Default.SdCard, contentDescription = null) }
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp)
+            ) {
+                Button(onClick = { folderPicker.launch(null) }) { Text("Choose folder") }
+                if (uiState.offlineRootName != null) {
+                    OutlinedButton(onClick = viewModel::clearOfflineRoot) { Text("Use internal storage") }
+                }
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 

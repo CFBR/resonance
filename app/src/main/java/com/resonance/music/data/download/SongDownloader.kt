@@ -15,6 +15,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,7 +43,9 @@ class SongDownloader @Inject constructor(
     private val api: SubsonicApi,
     private val apiHelper: SubsonicApiHelper,
     private val library: OfflineLibrary,
-    private val auth: AuthRepository
+    private val auth: AuthRepository,
+    private val storage: OfflineStorage,
+    private val okHttp: OkHttpClient
 ) {
     private val manager = context.getSystemService(DownloadManager::class.java)
     private val preferences = context.getSharedPreferences("song_downloads", Context.MODE_PRIVATE)
@@ -113,12 +117,12 @@ class SongDownloader @Inject constructor(
             if (library.account() != account) return
             if (wifiOnly && !hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
             if (library.record(record.key) != record) continue
-            if (record.downloadId >= 0) {
+            if (record.downloadId >= 0 || record.relativePath != null) {
                 if (library.inspect(record).status == OfflineStatus.READY) mutex.withLock { cacheArtwork(record) }
                 continue
             }
             try {
-                enqueue(record)
+                if (storage.hasRoot()) transferToStorage(record) else enqueue(record)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
             } catch (_: Exception) {
@@ -181,6 +185,57 @@ class SongDownloader @Inject constructor(
             }
             cacheArtwork(record)
         }
+    }
+
+    /**
+     * Downloads through the picked storage root instead of DownloadManager.
+     * The transfer runs outside the queue mutex so adding songs while a large
+     * file is moving does not block the UI.
+     */
+    private suspend fun transferToStorage(record: OfflineRecord) = withContext(Dispatchers.IO) {
+        val song = record.song
+        val relativePath = downloadPath(song, record.key)
+        try {
+            if (library.account() != record.account) return@withContext
+            if (library.record(record.key) != record) return@withContext
+            if (storage.exists(relativePath)) {
+                completeTransfer(record, relativePath)
+                return@withContext
+            }
+            // No precheck call here, unlike the DownloadManager path: that
+            // precheck exists because DownloadManager saves error pages as
+            // files, while this transfer validates the actual response below
+            // and costs the server only one request.
+            val url = apiHelper.getDownloadUrl(song.id)?.toHttpUrl() ?: throw IOException("Sign in to download music.")
+            val key = downloadKey(url.newBuilder().query(null).build().toString(), url.queryParameter("u").orEmpty(), song.id)
+            if (key != record.key) throw IOException("Your account changed. Try downloading again.")
+            // A slow server can legitimately take longer than the shared 30s read
+            // timeout to start serving a file, so this call gets its own budget.
+            val client = okHttp.newBuilder().readTimeout(3, TimeUnit.MINUTES).build()
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body ?: throw IOException("The server returned an empty download.")
+                if (!response.isSuccessful) throw IOException("The server refused this download.")
+                val type = body.contentType()
+                if (type?.type == "text" || type?.subtype?.let { "json" in it || "xml" in it } == true ||
+                    body.contentLength() == 0L
+                ) throw IOException("The server refused this download. Check your account's download permission.")
+                storage.write(relativePath) { output ->
+                    body.byteStream().copyTo(output, 64 * 1024)
+                }
+            }
+            completeTransfer(record, relativePath)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (library.record(record.key) == record) {
+                library.replace(record, record.copy(error = "Could not download. Check connection, storage, and server permissions. (${error.javaClass.simpleName}: ${error.message})"))
+            }
+        }
+    }
+
+    private suspend fun completeTransfer(record: OfflineRecord, relativePath: String) {
+        if (library.replace(record, record.copy(relativePath = relativePath))) cacheArtwork(record)
     }
 
     private suspend fun cacheArtwork(record: OfflineRecord) {

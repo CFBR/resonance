@@ -26,7 +26,11 @@ data class OfflineRecord(
     val song: SongItem,
     val downloadId: Long = -1,
     val wifiOnly: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // Set when the file was written through the Storage Access Framework instead
+    // of DownloadManager. Keyed by downloadPath(song, key), rooted at the folder
+    // the user picked. Null means DownloadManager owns the file.
+    val relativePath: String? = null
 )
 
 enum class OfflineStatus { QUEUED, DOWNLOADING, READY, FAILED }
@@ -42,7 +46,8 @@ data class OfflineTrack(
 @Singleton
 class OfflineLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val auth: AuthRepository
+    private val auth: AuthRepository,
+    private val storage: OfflineStorage
 ) {
     private val preferences = context.getSharedPreferences("offline_library", Context.MODE_PRIVATE)
     private val manager = context.getSystemService(DownloadManager::class.java)
@@ -129,6 +134,11 @@ class OfflineLibrary @Inject constructor(
 
     fun inspect(record: OfflineRecord): OfflineTrack {
         if (record.error != null) return OfflineTrack(record, OfflineStatus.FAILED)
+        if (record.relativePath != null) {
+            val uri = storage.documentUri(record.relativePath)
+            return if (uri != null) OfflineTrack(record, OfflineStatus.READY, uri = uri)
+            else OfflineTrack(record.copy(error = "The saved file is missing. Tap retry."), OfflineStatus.FAILED)
+        }
         if (record.downloadId < 0) return OfflineTrack(record, OfflineStatus.QUEUED)
         manager.query(DownloadManager.Query().setFilterById(record.downloadId))?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -167,7 +177,8 @@ class OfflineLibrary @Inject constructor(
             if (track.record.account != account()) return@withContext
             val current = record(track.record.key) ?: return@withContext
             preferences.edit().remove("track_${track.record.key}").commit()
-            if (current.downloadId >= 0) manager.remove(current.downloadId)
+            if (current.relativePath != null) storage.delete(current.relativePath)
+            else if (current.downloadId >= 0) manager.remove(current.downloadId)
         }
         refresh()
     }

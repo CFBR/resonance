@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Test-only in-process documents provider for instrumented tests.
+         Never present in release builds. -->
+    <application>
+        <provider
+            android:name="com.resonance.music.FakeDocumentsProvider"
+            android:authorities="com.resonance.music.testdocuments"
+            android:exported="false" />
+    </application>
+
+</manifest>
