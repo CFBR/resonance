@@ -3,6 +3,7 @@ package com.resonance.music.data.download
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import com.resonance.music.data.repository.SettingsStore
@@ -73,6 +74,25 @@ class OfflineStorage @Inject constructor(
         queryDisplayName(uri)
     }
 
+    /**
+     * Free bytes on the volume holding the root, or null when it cannot be
+     * resolved. Callers treat null as unknown and never block on it.
+     */
+    fun freeBytes(): Long? {
+        val root = rootUri() ?: return null
+        val target = runCatching { DocumentsContract.getTreeDocumentId(root) }.getOrNull()
+            ?.substringBefore(':') ?: return null
+        val manager = context.getSystemService(StorageManager::class.java) ?: return null
+        for (dir in context.getExternalFilesDirs(null)) {
+            if (dir == null) continue
+            val volume = runCatching { manager.getStorageVolume(dir) }.getOrNull() ?: continue
+            if ((target == "primary" && !volume.isRemovable) || volume.uuid == target) {
+                return dir.usableSpace
+            }
+        }
+        return null
+    }
+
     fun exists(relativePath: String): Boolean = runCatching { documentUri(relativePath) }.getOrNull() != null
 
     /** Resolves a stored file to a content URI, or null when it is gone. */
@@ -115,13 +135,13 @@ class OfflineStorage @Inject constructor(
      */
     suspend fun write(relativePath: String, writer: (OutputStream) -> Unit): Unit =
         withContext(Dispatchers.IO) {
-            val root = rootUri() ?: throw IOException("No offline storage folder is set")
+            val root = rootUri() ?: throw StorageOperationException("No offline storage folder is set")
             val segments = relativeSegments(relativePath)
             val name = segments.last()
             val parent: DirEntry
             synchronized(structureLock) {
                 parent = resolveDirectory(root, segments.dropLast(1), create = true)
-                    ?: throw IOException("Could not create the folder for this download")
+                    ?: throw StorageOperationException("Could not create the folder for this download")
                 loadChildren(root, parent)
                 deleteChild(root, parent, "$name.part")
                 deleteChild(root, parent, name)
@@ -131,16 +151,24 @@ class OfflineStorage @Inject constructor(
                 DocumentsContract.buildDocumentUriUsingTree(root, parent.documentId),
                 "application/octet-stream",
                 "$name.part"
-            ) ?: throw IOException("The storage refused this download")
+            ) ?: throw StorageOperationException("The storage refused this download")
             try {
                 if (queryDisplayName(partUri) != "$name.part") {
-                    throw IOException("The storage renamed the download and it cannot be tracked")
+                    throw StorageOperationException("The storage renamed the download and it cannot be tracked")
                 }
                 val output = resolver.openOutputStream(partUri, "wt")
-                    ?: throw IOException("Could not open the download for writing")
+                    ?: throw StorageOperationException("Could not open the download for writing")
                 output.use { stream ->
-                    writer(stream)
-                    stream.flush()
+                    try {
+                        writer(stream)
+                        stream.flush()
+                    } catch (error: java.io.IOException) {
+                        // The writer mixes a network read with a disk write, so
+                        // the cause is ambiguous. Failing this one song is the
+                        // safe reading: when the network is genuinely down, the
+                        // next file's transport errors still stop the run.
+                        throw StorageOperationException(error.message ?: "The download could not be written")
+                    }
                 }
             } catch (error: Throwable) {
                 runCatching { DocumentsContract.deleteDocument(resolver, partUri) }
@@ -149,9 +177,9 @@ class OfflineStorage @Inject constructor(
             synchronized(structureLock) {
                 try {
                     val finalUri = DocumentsContract.renameDocument(resolver, partUri, name)
-                        ?: throw IOException("Could not finalize the download")
+                        ?: throw StorageOperationException("Could not finalize the download")
                     if (queryDisplayName(finalUri) != name) {
-                        throw IOException("The storage renamed the download and it cannot be tracked")
+                        throw StorageOperationException("The storage renamed the download and it cannot be tracked")
                     }
                     parent.children[name] = DocumentsContract.getDocumentId(finalUri)
                 } catch (error: Throwable) {
