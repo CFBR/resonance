@@ -158,8 +158,8 @@ class MusicRepository @Inject constructor(
 
     // --- Scrobble ---
 
-    suspend fun scrobble(songId: String, submission: Boolean = true) {
-        api.scrobble(songId, submission)
+    suspend fun scrobble(songId: String, submission: Boolean = true, time: Long? = null) {
+        api.scrobble(songId, submission, time)
     }
 
     // --- Lyrics ---

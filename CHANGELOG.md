@@ -47,6 +47,10 @@ All notable changes to Resonance will be documented in this file.
 
 ### Fixed
 
+- Plays that happen without a connection are no longer lost: failed scrobbles
+  wait in a persistent queue and reach the server with their original listen
+  time once the network returns.
+
 - Stop the queue and retry later when the storage folder is nearly full, instead
   of marking every song as failed.
 - A failed children listing no longer poisons the folder cache into rejecting

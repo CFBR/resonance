@@ -1,13 +1,21 @@
 package com.resonance.music.playback
 
+import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.work.*
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.data.repository.SettingsStore
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import javax.inject.Inject
 
-class PlaybackReporting @Inject constructor(private val music: MusicRepository, private val settings: SettingsStore) {
+class PlaybackReporting @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val music: MusicRepository,
+    private val settings: SettingsStore,
+    private val queue: ScrobbleQueue
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var enabled = true
     private var reportedNow = false
@@ -20,6 +28,9 @@ class PlaybackReporting @Inject constructor(private val music: MusicRepository, 
                 submitted = false
             }
         })
+        // Plays lost before the queue existed, or while offline, drain as soon
+        // as the network is back.
+        if (!queue.isEmpty()) scheduleFlush()
         scope.launch { settings.scrobbleEnabled.collect { enabled = it } }
         scope.launch {
             while (isActive) {
@@ -41,8 +52,23 @@ class PlaybackReporting @Inject constructor(private val music: MusicRepository, 
         scope.launch(Dispatchers.IO) {
             try { music.scrobble(id, submission) }
             catch (error: CancellationException) { throw error }
-            catch (_: Exception) { }
+            catch (error: Exception) {
+                // Now-playing signals are transient and meaningless late;
+                // submissions carry the play count and are worth keeping.
+                if (!submission) return@launch
+                if (queue.add(ScrobbleEntry(id, true, System.currentTimeMillis()))) scheduleFlush()
+            }
         }
+    }
+
+    private fun scheduleFlush() {
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "scrobble_flush", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<ScrobbleFlushWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+        )
     }
     fun release() { scope.cancel() }
 }
