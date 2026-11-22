@@ -105,7 +105,8 @@ interface SubsonicApi {
     @GET("rest/scrobble")
     suspend fun scrobble(
         @Query("id") id: String,
-        @Query("submission") submission: Boolean = true
+        @Query("submission") submission: Boolean = true,
+        @Query("time") time: Long? = null
     ): SubsonicRoot
 
     // --- Starred ---

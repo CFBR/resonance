@@ -145,6 +145,9 @@ def main():
     parser.add_argument("--out", required=True, help="local directory for files and the manifest")
     parser.add_argument("--push-serial", help="adb device serial to push to")
     parser.add_argument("--push-root", help="the storage root on the device, e.g. /storage/XXXX/Music")
+    parser.add_argument("--stream", action="store_true",
+                        help="push each album and delete it locally instead of staging everything, "
+                             "so disk use stays at one album no matter the library size")
     args = parser.parse_args()
     if not (args.album_id or args.all):
         parser.error("pass --album-id or --all")
@@ -166,7 +169,23 @@ def main():
                 break
             offset += PAGE_SIZE
 
+    import shlex
+    import shutil
+    import subprocess
+
+    root = (args.push_root or "/storage/emulated/0/Music") if args.push_serial else None
+
+    def push_directory(local_dir, remote_parent):
+        # adb push creates the leaf but not always the chain, so make the
+        # parent explicitly. The path runs through the device shell, so quote
+        # it: artist and album names contain spaces.
+        subprocess.run(["adb", "-s", args.push_serial, "shell",
+                        f"mkdir -p {shlex.quote(remote_parent)}"], check=True)
+        subprocess.run(["adb", "-s", args.push_serial, "push", local_dir, remote_parent + "/"],
+                       check=True)
+
     for album in albums:
+        album_dir = None
         for song in album_songs(server, params, album["id"]):
             key = record_key(server, args.user, song["id"])
             path = song_path(song, key)
@@ -177,18 +196,25 @@ def main():
             manifest_lines.append(json.dumps({"path": path, "song": manifest_song(song)},
                                               ensure_ascii=False, separators=(",", ":")))
             done += 1
+            album_dir = os.path.dirname(destination)
             print(f"[{done}] {path}")
+
+        if args.stream and args.push_serial and album_dir:
+            # album_dir is <out>/Resonance/<Artist>/<Album>; push into the
+            # artist's directory and drop the local copy right after.
+            relative = os.path.relpath(album_dir, args.out)
+            artist_parent = "/".join(relative.split("/")[:-1])
+            push_directory(album_dir, f"{root}/{artist_parent}")
+            shutil.rmtree(album_dir, ignore_errors=True)
 
     manifest = os.path.join(args.out, MANIFEST_NAME)
     with open(manifest, "w", encoding="utf-8") as f:
         f.write("\n".join(manifest_lines) + ("\n" if manifest_lines else ""))
 
-    if args.push_serial:
-        import subprocess
-        root = args.push_root or "/storage/emulated/0/Music"
+    if args.push_serial and not args.stream:
         print(f"pushing {done} files and the manifest to {root}")
-        subprocess.run(["adb", "-s", args.push_serial, "push",
-                        os.path.join(args.out, "Resonance"), f"{root}/"], check=True)
+        push_directory(os.path.join(args.out, "Resonance"), root)
+    if args.push_serial:
         subprocess.run(["adb", "-s", args.push_serial, "push", manifest, f"{root}/"], check=True)
 
     print(f"done: {done} songs, manifest at {manifest}")
