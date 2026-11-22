@@ -41,6 +41,7 @@ SUFFIX_MAP = {
 SUFFIX_RE = re.compile(r"^[a-z0-9]{1,10}$")
 MANIFEST_NAME = "resonance-manifest.jsonl"
 PAGE_SIZE = 200
+SONG_PAGE = 500
 
 
 def auth_params(args):
@@ -124,6 +125,24 @@ def album_songs(server, params, album_id):
     return body.get("album", {}).get("song", [])
 
 
+def all_songs(server, params):
+    """Every song the server knows, in one paged sweep.
+
+    An empty search matches everything, so the whole library costs a handful
+    of requests instead of one per album.
+    """
+    songs, offset = [], 0
+    while True:
+        body = call(server, {**params, "query": "", "songCount": SONG_PAGE,
+                             "songOffset": offset, "albumCount": 0,
+                             "artistCount": 0}, "search3")
+        page = body.get("searchResult3", {}).get("song", [])
+        songs += page
+        if len(page) < SONG_PAGE:
+            return songs
+        offset += SONG_PAGE
+
+
 def device_files(serial, root):
     """Files already under the push root, as manifest-style relative paths.
 
@@ -172,9 +191,12 @@ def main():
     parser.add_argument("--resume", action="store_true",
                         help="skip songs whose file already sits on the device, so an "
                              "interrupted run continues instead of downloading everything again")
+    parser.add_argument("--manifest-only", action="store_true",
+                        help="rebuild the manifest from the files already on the device and "
+                             "stop; nothing is downloaded or transferred but the manifest")
     args = parser.parse_args()
-    if not (args.album_id or args.all):
-        parser.error("pass --album-id or --all")
+    if not (args.album_id or args.all or args.manifest_only):
+        parser.error("pass --album-id, --all or --manifest-only")
 
     # A killed run must not swallow its log, so do not sit on buffered output.
     sys.stdout.reconfigure(line_buffering=True)
@@ -186,6 +208,8 @@ def main():
 
     if args.album_id:
         albums = [{"id": args.album_id}]
+    elif args.manifest_only:
+        albums = []
     else:
         albums, offset = [], 0
         while True:
@@ -228,6 +252,23 @@ def main():
     if args.resume and args.push_serial:
         existing = device_files(args.push_serial, root)
         print(f"{len(existing)} files already on the device", flush=True)
+
+    if args.manifest_only:
+        if not (args.push_serial and root):
+            parser.error("--manifest-only needs --push-serial and --push-root")
+        existing = device_files(args.push_serial, root)
+        songs = all_songs(server, params)
+        print(f"{len(existing)} files on the device, {len(songs)} songs on the server", flush=True)
+        for song in songs:
+            key = record_key(server, args.user, song["id"])
+            path = song_path(song, key)
+            if path in existing:
+                note(path, song)
+        with open(manifest, "w", encoding="utf-8") as f:
+            f.write("\n".join(manifest_lines.values()) + ("\n" if manifest_lines else ""))
+        subprocess.run(["adb", "-s", args.push_serial, "push", manifest, f"{root}/"], check=True)
+        print(f"done: {len(manifest_lines)} entries in the manifest", flush=True)
+        return 0
 
     def push_directory(local_dir, remote_parent):
         # adb push creates the leaf but not always the chain, so make the
