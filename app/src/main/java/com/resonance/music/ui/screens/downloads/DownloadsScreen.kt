@@ -24,6 +24,8 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
     val sync by viewModel.syncFavorites.collectAsState()
     val totals by viewModel.totals.collectAsState()
     val libraryRunning by viewModel.libraryRunning.collectAsState()
+    val exportRunning by viewModel.exportRunning.collectAsState()
+    val importRunning by viewModel.importRunning.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
     removing?.let { track ->
@@ -58,6 +60,18 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                     trailingContent = {
                         if (libraryRunning) OutlinedButton(onClick = viewModel::cancelLibraryDownload) { Text("Stop") }
                         else Button(onClick = viewModel::startLibraryDownload) { Text("Download all") }
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Fill from a computer") },
+                    supportingContent = { Text("Copy files into the folder you picked, or export the list first. Import marks present files ready without downloading.") },
+                    trailingContent = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (exportRunning) OutlinedButton(onClick = viewModel::cancelManifestExport) { Text("Stop") }
+                            else Button(onClick = viewModel::startManifestExport) { Text("Export list") }
+                            if (importRunning) OutlinedButton(onClick = viewModel::cancelManifestImport) { Text("Stop") }
+                            else OutlinedButton(onClick = viewModel::startManifestImport) { Text("Import") }
+                        }
                     }
                 )
                 if (tracks.isEmpty()) Text("Download songs, albums, playlists, or artists to listen here without a connection.", Modifier.padding(16.dp))

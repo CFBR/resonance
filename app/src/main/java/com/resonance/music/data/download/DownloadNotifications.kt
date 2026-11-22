@@ -74,6 +74,45 @@ class DownloadNotifications @Inject constructor(
         manager.notify(ID_LIBRARY, libraryProgress(albumsScanned, songsQueued))
     }
 
+    private fun simpleProgress(id: Int, title: String, text: String): Notification {
+        ensureChannel()
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val intent = PendingIntent.getActivity(
+            context, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(intent)
+            .build()
+    }
+
+    fun exportProgress(songsExported: Int): Notification =
+        simpleProgress(ID_EXPORT, "Exporting file list", "$songsExported songs")
+
+    fun updateExport(songsExported: Int) {
+        manager.notify(ID_EXPORT, exportProgress(songsExported))
+    }
+
+    fun clearExport() {
+        manager.cancel(ID_EXPORT)
+    }
+
+    fun importProgress(songsImported: Int): Notification =
+        simpleProgress(ID_IMPORT, "Importing saved files", "$songsImported songs imported")
+
+    fun updateImport(songsImported: Int) {
+        manager.notify(ID_IMPORT, importProgress(songsImported))
+    }
+
+    fun clearImport() {
+        manager.cancel(ID_IMPORT)
+    }
+
     fun clearLibrary() {
         manager.cancel(ID_LIBRARY)
     }
@@ -85,6 +124,8 @@ class DownloadNotifications @Inject constructor(
     companion object {
         const val ID = 42
         const val ID_LIBRARY = 43
+        const val ID_EXPORT = 44
+        const val ID_IMPORT = 45
         const val CHANNEL_ID = "downloads"
     }
 }

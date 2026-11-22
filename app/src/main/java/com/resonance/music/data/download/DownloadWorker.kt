@@ -18,7 +18,7 @@ interface DownloadWorkerDependencies {
     fun notifications(): DownloadNotifications
 }
 
-private enum class WorkerMode { TRANSFERS, FAVORITES, LIBRARY }
+private enum class WorkerMode { TRANSFERS, FAVORITES, LIBRARY, EXPORT, IMPORT }
 
 class DownloadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
@@ -30,6 +30,8 @@ class DownloadWorker(context: Context, parameters: WorkerParameters) : Coroutine
         val notifications = dependencies.notifications()
         val mode = when {
             inputData.getBoolean("library", false) -> WorkerMode.LIBRARY
+            inputData.getBoolean("export", false) -> WorkerMode.EXPORT
+            inputData.getBoolean("import", false) -> WorkerMode.IMPORT
             inputData.getBoolean("favorites", false) -> WorkerMode.FAVORITES
             else -> WorkerMode.TRANSFERS
         }
@@ -40,6 +42,14 @@ class DownloadWorker(context: Context, parameters: WorkerParameters) : Coroutine
                     downloader.syncLibrary(account)
                 }
                 WorkerMode.FAVORITES -> downloader.syncFavorites(account)
+                WorkerMode.EXPORT -> {
+                    beginForeground(DownloadNotifications.ID_EXPORT, notifications.exportProgress(0))
+                    downloader.exportManifest(account)
+                }
+                WorkerMode.IMPORT -> {
+                    beginForeground(DownloadNotifications.ID_IMPORT, notifications.importProgress(0))
+                    downloader.importManifest()
+                }
                 WorkerMode.TRANSFERS -> {
                     beginForeground(DownloadNotifications.ID, notifications.progress(null, downloader.pendingCount(account)))
                     downloader.processQueue(account, inputData.getBoolean("wifiOnly", false))
@@ -53,6 +63,8 @@ class DownloadWorker(context: Context, parameters: WorkerParameters) : Coroutine
         } finally {
             when (mode) {
                 WorkerMode.LIBRARY -> notifications.clearLibrary()
+                WorkerMode.EXPORT -> notifications.clearExport()
+                WorkerMode.IMPORT -> notifications.clearImport()
                 WorkerMode.TRANSFERS -> notifications.clear()
                 WorkerMode.FAVORITES -> {}
             }

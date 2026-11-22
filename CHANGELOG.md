@@ -36,6 +36,15 @@ All notable changes to Resonance will be documented in this file.
   data, and a Stop button cancels the run while keeping what is already saved.
   The Downloads screen shows how many songs are saved, waiting, or failed.
 
+### Added
+
+- "Fill from a computer": export the expected file layout as a manifest
+  (resonance-manifest.jsonl) into the storage folder, copy files into place over
+  USB with the bundled pre-seed script, then import them as ready offline
+  records with no download traffic. The manifest carries each song's metadata,
+  so importing works fully offline. A new tools/preseed script mirrors the app's
+  path and key computation for computers doing the copying.
+
 ### Fixed
 
 - Stop the queue and retry later when the storage folder is nearly full, instead
