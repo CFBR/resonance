@@ -53,12 +53,38 @@ class DownloadNotifications @Inject constructor(
         manager.notify(ID, progress(current, remaining))
     }
 
+    fun libraryProgress(albumsScanned: Int, songsQueued: Int): Notification {
+        ensureChannel()
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val intent = PendingIntent.getActivity(
+            context, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle("Scanning library")
+            .setContentText("$albumsScanned albums scanned, $songsQueued songs queued")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(intent)
+            .build()
+    }
+
+    fun updateLibrary(albumsScanned: Int, songsQueued: Int) {
+        manager.notify(ID_LIBRARY, libraryProgress(albumsScanned, songsQueued))
+    }
+
+    fun clearLibrary() {
+        manager.cancel(ID_LIBRARY)
+    }
+
     fun clear() {
         manager.cancel(ID)
     }
 
     companion object {
         const val ID = 42
+        const val ID_LIBRARY = 43
         const val CHANNEL_ID = "downloads"
     }
 }

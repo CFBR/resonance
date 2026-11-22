@@ -239,7 +239,11 @@ class OfflineStorage @Inject constructor(
     private fun loadChildren(root: Uri, entry: DirEntry) {
         if (entry.loaded) return
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, entry.documentId)
-        runCatching {
+        // A failed query must not poison the cache: marking an empty listing as
+        // loaded would send every later lookup down the create path, where the
+        // provider answers with suffixed duplicates the exact-name check
+        // rejects. Leave the entry unloaded so the next call retries.
+        val loaded = runCatching {
             resolver.query(
                 childrenUri,
                 arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME),
@@ -249,8 +253,8 @@ class OfflineStorage @Inject constructor(
                     entry.children[cursor.getString(1)] = cursor.getString(0)
                 }
             }
-        }
-        entry.loaded = true
+        }.isSuccess
+        if (loaded) entry.loaded = true
     }
 
     private fun queryDisplayName(uri: Uri): String? =
