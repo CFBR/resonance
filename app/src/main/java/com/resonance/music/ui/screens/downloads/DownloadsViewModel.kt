@@ -25,14 +25,20 @@ class DownloadsViewModel @Inject constructor(
     val totals: StateFlow<OfflineTotals> = tracks
         .map(::offlineTotals)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineTotals(0, 0, 0))
-    val libraryRunning: StateFlow<Boolean> = library.account()?.let { account ->
-        downloader.libraryRunState(account)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-    } ?: kotlinx.coroutines.flow.MutableStateFlow(false)
+    val libraryRunning: StateFlow<Boolean> = downloader.workRunning("library")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val exportRunning: StateFlow<Boolean> = downloader.workRunning("export")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val importRunning: StateFlow<Boolean> = downloader.workRunning("import")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setSyncFavorites(enabled: Boolean) = downloader.setSyncFavorites(enabled)
     fun startLibraryDownload() = downloader.startLibraryDownload()
     fun cancelLibraryDownload() = downloader.cancelLibraryDownload()
+    fun startManifestExport() = downloader.startManifestExport()
+    fun cancelManifestExport() = downloader.cancelManifestExport()
+    fun startManifestImport() = downloader.startManifestImport()
+    fun cancelManifestImport() = downloader.cancelManifestImport()
     fun coverArt(id: String) = music.getCoverArtUrl(id)
     fun play(songId: String? = null, shuffle: Boolean = false) {
         val songs = tracks.value.filter { it.status == OfflineStatus.READY }.map { it.record.song }

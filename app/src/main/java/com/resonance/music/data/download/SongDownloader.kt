@@ -311,6 +311,16 @@ class SongDownloader @Inject constructor(
             OneTimeWorkRequestBuilder<DownloadWorker>().setConstraints(constraints).setInputData(data).build())
     }
 
+    /**
+     * The record key for a song, derived exactly the way queue() derives it:
+     * from the download URL without its query, the username, and the song id.
+     * The manifest and the pre-seed script must reproduce this byte for byte.
+     */
+    private fun recordKey(song: SongItem): String? {
+        val url = apiHelper.getDownloadUrl(song.id)?.toHttpUrl() ?: return null
+        return downloadKey(url.newBuilder().query(null).build().toString(), url.queryParameter("u").orEmpty(), song.id)
+    }
+
     /** Starts a full-library enumeration run; KEEP means a running scan is not replaced. */
     fun startLibraryDownload() {
         val account = library.account() ?: return
@@ -332,18 +342,129 @@ class SongDownloader @Inject constructor(
         work.cancelUniqueWork("downloads_${account}_false")
     }
 
-    /** True while the library scan work exists and has not finished. */
-    fun libraryRunState(account: String): kotlinx.coroutines.flow.Flow<Boolean> =
-        WorkManager.getInstance(context)
-            .getWorkInfosForUniqueWorkFlow("library_$account")
-            .map { infos -> infos.any { info -> !info.state.isFinished } }
-
     /**
      * Walks every album on the server and queues songs not yet saved. One
      * queue batch per album page keeps the transfer chain short. The walk
      * stops when the destination runs out of space; a transport failure of
      * the album list aborts the run for a worker retry.
      */
+    fun startManifestExport() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "export_$account", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<DownloadWorker>()
+                .setInputData(workDataOf("account" to account, "export" to true))
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+        )
+    }
+
+    fun startManifestImport() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "import_$account", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<DownloadWorker>()
+                .setInputData(workDataOf("account" to account, "import" to true))
+                .build()
+        )
+    }
+
+    fun cancelManifestExport() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).cancelUniqueWork("export_$account")
+    }
+
+    fun cancelManifestImport() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).cancelUniqueWork("import_$account")
+    }
+
+    /** True while the named unique work exists and has not finished. */
+    fun workRunning(workName: String): kotlinx.coroutines.flow.Flow<Boolean> {
+        val account = library.account() ?: return kotlinx.coroutines.flow.MutableStateFlow(false)
+        val name = if (workName == "library") "library_$account" else "${workName}_$account"
+        return WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(name)
+            .map { infos -> infos.any { info -> !info.state.isFinished } }
+    }
+
+    /**
+     * Writes the offline manifest into the picked storage folder: one JSON
+     * line per song with the exact path the app expects and the song data,
+     * so a computer can copy files into place and import needs no server.
+     */
+    suspend fun exportManifest(account: String): Int {
+        if (library.account() != account) return 0
+        val entries = mutableListOf<ManifestEntry>()
+        val queued = enumerateLibrary(
+            listAlbums = { offset ->
+                val response = api.getAlbumList("alphabeticalByName", 200, offset).response
+                if (!response.isOk) throw IOException("Could not list albums")
+                response.albumList2?.album.orEmpty()
+            },
+            albumSongs = { albumId ->
+                val response = api.getAlbum(albumId).response
+                if (!response.isOk) throw IOException("Could not load album")
+                response.album?.song.orEmpty()
+            },
+            queueSongs = { songs ->
+                for (song in songs) {
+                    val key = recordKey(song) ?: throw IOException("Sign in to export the file list.")
+                    entries += ManifestEntry(downloadPath(song, key), song)
+                }
+                songs.size
+            },
+            keepGoing = { library.account() == account },
+            onProgress = { _, exported -> notifications.updateExport(exported) }
+        )
+        storage.write(MANIFEST_NAME) { out ->
+            out.bufferedWriter(Charsets.UTF_8).use { writer ->
+                for (entry in entries) {
+                    writer.write(manifestLine(entry))
+                    writer.write("\n")
+                }
+            }
+        }
+        return queued
+    }
+
+    /**
+     * Reads the manifest from the storage folder and marks every entry whose
+     * file is present as ready. Works offline: the manifest carries the song
+     * data, and the files are already on the storage. Missing files are
+     * skipped, so a partial copy can be imported now and re-run later.
+     */
+    suspend fun importManifest(): Int = withContext(Dispatchers.IO) {
+        val account = library.account() ?: throw IOException("Sign in to import saved files.")
+        val input = storage.openInput(MANIFEST_NAME)
+            ?: throw IOException("No manifest file in the storage folder. Export it or copy one from your computer.")
+        val entries = mutableListOf<ManifestEntry>()
+        input.bufferedReader(Charsets.UTF_8).use { reader ->
+            while (true) {
+                val line = reader.readLine() ?: break
+                parseManifestLine(line)?.let(entries::add)
+            }
+        }
+        var imported = 0
+        for (batch in entries.chunked(500)) {
+            imported += importManifestEntries(
+                batch,
+                fileExists = { storage.exists(it) },
+                recordFor = { entry ->
+                    val key = recordKey(entry.song) ?: throw IOException("Sign in to import saved files.")
+                    val updated = library.record(key)
+                        ?.copy(song = entry.song, relativePath = entry.path, error = null)
+                        ?: OfflineRecord(key, account, entry.song, relativePath = entry.path)
+                    library.save(updated)
+                }
+            )
+            notifications.updateImport(imported)
+        }
+        library.refresh()
+        imported
+    }
+
     suspend fun syncLibrary(account: String): Int {
         if (library.account() != account) return 0
         return enumerateLibrary(

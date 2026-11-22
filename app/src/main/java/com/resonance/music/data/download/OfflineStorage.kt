@@ -105,6 +105,12 @@ class OfflineStorage @Inject constructor(
         DocumentsContract.buildDocumentUriUsingTree(root, documentId)
     }
 
+    /** Opens a stored file for reading, or null when it is gone. */
+    fun openInput(relativePath: String): java.io.InputStream? {
+        val uri = documentUri(relativePath) ?: return null
+        return runCatching { resolver.openInputStream(uri) }.getOrNull()
+    }
+
     fun delete(relativePath: String): Boolean = synchronized(structureLock) {
         val root = rootUri() ?: return false
         val segments = runCatching { relativeSegments(relativePath) }.getOrNull() ?: return false
