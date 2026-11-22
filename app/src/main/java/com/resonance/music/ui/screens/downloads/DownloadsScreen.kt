@@ -22,6 +22,8 @@ import com.resonance.music.ui.components.LocalSongDownload
 fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
     val tracks by viewModel.tracks.collectAsState()
     val sync by viewModel.syncFavorites.collectAsState()
+    val totals by viewModel.totals.collectAsState()
+    val libraryRunning by viewModel.libraryRunning.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
     removing?.let { track ->
@@ -45,7 +47,19 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                     Button(enabled = ready, onClick = { viewModel.play() }) { Icon(Icons.Default.PlayArrow, null); Text("Play all") }
                     OutlinedButton(enabled = ready, onClick = { viewModel.play(shuffle = true) }) { Icon(Icons.Default.Shuffle, null); Text("Shuffle") }
                 }
-                Text("${tracks.count { it.status == OfflineStatus.READY }} songs available offline", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (totals.known == 0) "No songs saved yet"
+                    else "${totals.ready} of ${totals.known} songs saved, ${totals.queued} waiting",
+                    Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium
+                )
+                ListItem(
+                    headlineContent = { Text("Download entire library") },
+                    supportingContent = { Text("Scan every album and queue missing songs. Transfers wait for Wi-Fi.") },
+                    trailingContent = {
+                        if (libraryRunning) OutlinedButton(onClick = viewModel::cancelLibraryDownload) { Text("Stop") }
+                        else Button(onClick = viewModel::startLibraryDownload) { Text("Download all") }
+                    }
+                )
                 if (tracks.isEmpty()) Text("Download songs, albums, playlists, or artists to listen here without a connection.", Modifier.padding(16.dp))
             }
             items(tracks, key = { it.record.key }) { track ->

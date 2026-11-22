@@ -18,6 +18,8 @@ interface DownloadWorkerDependencies {
     fun notifications(): DownloadNotifications
 }
 
+private enum class WorkerMode { TRANSFERS, FAVORITES, LIBRARY }
+
 class DownloadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val account = inputData.getString("account") ?: return Result.failure()
@@ -25,42 +27,54 @@ class DownloadWorker(context: Context, parameters: WorkerParameters) : Coroutine
             applicationContext, DownloadWorkerDependencies::class.java
         )
         val downloader = dependencies.downloader()
-        val favorites = inputData.getBoolean("favorites", false)
+        val notifications = dependencies.notifications()
+        val mode = when {
+            inputData.getBoolean("library", false) -> WorkerMode.LIBRARY
+            inputData.getBoolean("favorites", false) -> WorkerMode.FAVORITES
+            else -> WorkerMode.TRANSFERS
+        }
         return try {
-            if (!favorites) beginForeground(downloader.pendingCount(account))
-            if (favorites) downloader.syncFavorites(account)
-            else downloader.processQueue(account, inputData.getBoolean("wifiOnly", false))
+            when (mode) {
+                WorkerMode.LIBRARY -> {
+                    beginForeground(DownloadNotifications.ID_LIBRARY, notifications.libraryProgress(0, 0))
+                    downloader.syncLibrary(account)
+                }
+                WorkerMode.FAVORITES -> downloader.syncFavorites(account)
+                WorkerMode.TRANSFERS -> {
+                    beginForeground(DownloadNotifications.ID, notifications.progress(null, downloader.pendingCount(account)))
+                    downloader.processQueue(account, inputData.getBoolean("wifiOnly", false))
+                }
+            }
             Result.success()
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
             Result.retry()
         } finally {
-            if (!favorites) dependencies.notifications().clear()
+            when (mode) {
+                WorkerMode.LIBRARY -> notifications.clearLibrary()
+                WorkerMode.TRANSFERS -> notifications.clear()
+                WorkerMode.FAVORITES -> {}
+            }
         }
     }
 
     /**
      * A foreground worker survives Doze and OEM battery management for the
      * hours a large fill can take. When the system refuses a foreground start,
-     * the transfer continues as ordinary background work instead of failing.
+     * the work continues in the background instead of failing.
      */
-    private suspend fun beginForeground(remaining: Int) {
-        val notifications = EntryPointAccessors.fromApplication(
-            applicationContext, DownloadWorkerDependencies::class.java
-        ).notifications()
+    private suspend fun beginForeground(notificationId: Int, notification: android.app.Notification) {
         val info = ForegroundInfo(
-            DownloadNotifications.ID,
-            notifications.progress(null, remaining),
+            notificationId,
+            notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
         try {
             setForeground(info)
-        } catch (error: kotlinx.coroutines.CancellationException) {
+        } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            // Android can refuse a foreground start from the background; the
-            // transfer continues as ordinary background work instead.
         }
     }
 }

@@ -28,10 +28,20 @@ All notable changes to Resonance will be documented in this file.
   interrupted song after the app is killed mid-fill. Transfers continue with the
   screen off.
 
+### Added
+
+- "Download entire library": scans every album on the server, queues missing
+  songs, and shows scan progress in a notification alongside the transfer
+  progress. Transfers wait for Wi-Fi, so a bulk fill never consumes metered
+  data, and a Stop button cancels the run while keeping what is already saved.
+  The Downloads screen shows how many songs are saved, waiting, or failed.
+
 ### Fixed
 
 - Stop the queue and retry later when the storage folder is nearly full, instead
   of marking every song as failed.
+- A failed children listing no longer poisons the folder cache into rejecting
+  later downloads of that album.
 
 ## [0.8.3] - 2026-11-09
 

@@ -6,6 +6,10 @@ import com.resonance.music.data.download.*
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.playback.PlaybackManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -18,7 +22,17 @@ class DownloadsViewModel @Inject constructor(
 ) : ViewModel() {
     val tracks = library.tracks
     val syncFavorites = library.syncFavorites
+    val totals: StateFlow<OfflineTotals> = tracks
+        .map(::offlineTotals)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineTotals(0, 0, 0))
+    val libraryRunning: StateFlow<Boolean> = library.account()?.let { account ->
+        downloader.libraryRunState(account)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    } ?: kotlinx.coroutines.flow.MutableStateFlow(false)
+
     fun setSyncFavorites(enabled: Boolean) = downloader.setSyncFavorites(enabled)
+    fun startLibraryDownload() = downloader.startLibraryDownload()
+    fun cancelLibraryDownload() = downloader.cancelLibraryDownload()
     fun coverArt(id: String) = music.getCoverArtUrl(id)
     fun play(songId: String? = null, shuffle: Boolean = false) {
         val songs = tracks.value.filter { it.status == OfflineStatus.READY }.map { it.record.song }

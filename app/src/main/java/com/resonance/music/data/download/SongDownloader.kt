@@ -311,6 +311,61 @@ class SongDownloader @Inject constructor(
             OneTimeWorkRequestBuilder<DownloadWorker>().setConstraints(constraints).setInputData(data).build())
     }
 
+    /** Starts a full-library enumeration run; KEEP means a running scan is not replaced. */
+    fun startLibraryDownload() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "library_$account", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<DownloadWorker>()
+                .setInputData(workDataOf("account" to account, "library" to true))
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+        )
+    }
+
+    /** Stops the scan and the transfer run; already-queued songs keep their state. */
+    fun cancelLibraryDownload() {
+        val account = library.account() ?: return
+        val work = WorkManager.getInstance(context)
+        work.cancelUniqueWork("library_$account")
+        work.cancelUniqueWork("downloads_${account}_false")
+    }
+
+    /** True while the library scan work exists and has not finished. */
+    fun libraryRunState(account: String): kotlinx.coroutines.flow.Flow<Boolean> =
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow("library_$account")
+            .map { infos -> infos.any { info -> !info.state.isFinished } }
+
+    /**
+     * Walks every album on the server and queues songs not yet saved. One
+     * queue batch per album page keeps the transfer chain short. The walk
+     * stops when the destination runs out of space; a transport failure of
+     * the album list aborts the run for a worker retry.
+     */
+    suspend fun syncLibrary(account: String): Int {
+        if (library.account() != account) return 0
+        return enumerateLibrary(
+            listAlbums = { offset ->
+                val response = api.getAlbumList("alphabeticalByName", 200, offset).response
+                if (!response.isOk) throw IOException("Could not list albums")
+                response.albumList2?.album.orEmpty()
+            },
+            albumSongs = { albumId ->
+                val response = api.getAlbum(albumId).response
+                if (!response.isOk) throw IOException("Could not load album")
+                response.album?.song.orEmpty()
+            },
+            // Wi-Fi only: a bulk fill must never start eating metered data the
+            // moment the tablet connects to a phone hotspot. Scanning is cheap;
+            // the transfers are not.
+            queueSongs = { songs -> queue(songs, wifiOnly = true) },
+            keepGoing = { library.account() == account && !spaceGuard(storage.freeBytes(), null) },
+            onProgress = { scanned, queued -> notifications.updateLibrary(scanned, queued) }
+        )
+    }
+
     suspend fun syncFavorites(account: String) {
         if (library.account() != account || !library.favoritesEnabled(account)) return
         if (!hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
