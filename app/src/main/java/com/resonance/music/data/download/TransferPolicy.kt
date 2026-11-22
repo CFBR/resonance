@@ -33,7 +33,7 @@ internal fun pendingTransferCount(records: List<OfflineRecord>, wifiOnly: Boolea
     records.count { it.wifiOnly == wifiOnly && it.error == null && it.downloadId < 0 && it.relativePath == null }
 
 /** Margin kept free on the storage volume so the system and other apps stay usable. */
-const val MIN_FREE_BYTES: Long = 200L * 1024 * 1024
+internal const val MIN_FREE_BYTES: Long = 200L * 1024 * 1024
 
 /**
  * True when the destination volume is too full to keep downloading: when the

@@ -118,6 +118,9 @@ class SongDownloader @Inject constructor(
     }
 
     suspend fun processQueue(account: String, wifiOnly: Boolean = false) {
+        // Computed once: records() re-parses the whole store, so calling it per
+        // song for progress would make a large fill quadratic in bookkeeping.
+        var remaining = pendingTransferCount(library.records(account), wifiOnly)
         for (record in library.records(account).filter { it.wifiOnly == wifiOnly && it.error == null }) {
             if (library.account() != account) return
             if (wifiOnly && !hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
@@ -134,8 +137,11 @@ class SongDownloader @Inject constructor(
                         // everything failed.
                         throw IOException("Waiting for free space on the storage folder")
                     }
-                    notifications.update(record.song.title, pendingTransferCount(library.records(account)))
+                    notifications.update(record.song.title, remaining)
                     transferToStorage(record)
+                    // Success or a recorded failure both clear the song from
+                    // this run's pending set; a transport error throws instead.
+                    remaining = (remaining - 1).coerceAtLeast(0)
                 } else enqueue(record)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error

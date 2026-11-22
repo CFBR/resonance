@@ -56,7 +56,11 @@ class DownloadWorker(context: Context, parameters: WorkerParameters) : Coroutine
         )
         try {
             setForeground(info)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
         } catch (_: Exception) {
+            // Android can refuse a foreground start from the background; the
+            // transfer continues as ordinary background work instead.
         }
     }
 }
