@@ -24,6 +24,9 @@ import hashlib
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -121,6 +124,24 @@ def album_songs(server, params, album_id):
     return body.get("album", {}).get("song", [])
 
 
+def device_files(serial, root):
+    """Files already under the push root, as manifest-style relative paths.
+
+    One adb call lists the whole tree, so resuming costs seconds instead of
+    one round trip per song.
+    """
+    listing = subprocess.run(["adb", "-s", serial, "shell",
+                              f"find {shlex.quote(root)} -type f 2>/dev/null"],
+                             capture_output=True, text=True, check=False)
+    paths = set()
+    prefix = root.rstrip("/") + "/"
+    for line in listing.stdout.splitlines():
+        line = line.strip()
+        if line.startswith(prefix):
+            paths.add(line[len(prefix):])
+    return paths
+
+
 def download_song(server, params, song_id, destination, timeout=600):
     qs = urllib.parse.urlencode({**params, "id": song_id})
     with urllib.request.urlopen(f"{server}/rest/download?{qs}", timeout=timeout) as r:
@@ -148,14 +169,19 @@ def main():
     parser.add_argument("--stream", action="store_true",
                         help="push each album and delete it locally instead of staging everything, "
                              "so disk use stays at one album no matter the library size")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip songs whose file already sits on the device, so an "
+                             "interrupted run continues instead of downloading everything again")
     args = parser.parse_args()
     if not (args.album_id or args.all):
         parser.error("pass --album-id or --all")
 
+    # A killed run must not swallow its log, so do not sit on buffered output.
+    sys.stdout.reconfigure(line_buffering=True)
+
     server = args.server.rstrip("/")
     params = auth_params(args)
     os.makedirs(args.out, exist_ok=True)
-    manifest_lines = []
     done = 0
 
     if args.album_id:
@@ -169,11 +195,39 @@ def main():
                 break
             offset += PAGE_SIZE
 
-    import shlex
-    import shutil
-    import subprocess
-
     root = (args.push_root or "/storage/emulated/0/Music") if args.push_serial else None
+
+    manifest = os.path.join(args.out, MANIFEST_NAME)
+    manifest_lines = {}
+    if args.resume and os.path.exists(manifest):
+        # Continue the list where the last run stopped; the final rewrite
+        # drops any duplicate left by an interrupted append.
+        with open(manifest, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    manifest_lines[json.loads(line)["path"]] = line
+                except (ValueError, KeyError, TypeError):
+                    # A run killed mid-write can leave a torn final line; the
+                    # song gets noted again when the walk reaches it.
+                    continue
+        print(f"resuming with {len(manifest_lines)} manifest entries", flush=True)
+
+    def note(path, song):
+        line = json.dumps({"path": path, "song": manifest_song(song)},
+                          ensure_ascii=False, separators=(",", ":"))
+        if manifest_lines.get(path) == line:
+            return
+        manifest_lines[path] = line
+        with open(manifest, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    existing = set()
+    if args.resume and args.push_serial:
+        existing = device_files(args.push_serial, root)
+        print(f"{len(existing)} files already on the device", flush=True)
 
     def push_directory(local_dir, remote_parent):
         # adb push creates the leaf but not always the chain, so make the
@@ -185,31 +239,35 @@ def main():
                        check=True)
 
     for album in albums:
-        album_dir = None
+        staged = []
         for song in album_songs(server, params, album["id"]):
             key = record_key(server, args.user, song["id"])
             path = song_path(song, key)
+            note(path, song)
+            done += 1
+            if path in existing:
+                print(f"[{done}] {path} (on device)")
+                continue
             destination = os.path.join(args.out, *path.split("/"))
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             if not os.path.exists(destination):
                 download_song(server, params, song["id"], destination)
-            manifest_lines.append(json.dumps({"path": path, "song": manifest_song(song)},
-                                              ensure_ascii=False, separators=(",", ":")))
-            done += 1
-            album_dir = os.path.dirname(destination)
+            staged.append(os.path.dirname(destination))
             print(f"[{done}] {path}")
 
-        if args.stream and args.push_serial and album_dir:
-            # album_dir is <out>/Resonance/<Artist>/<Album>; push into the
-            # artist's directory and drop the local copy right after.
-            relative = os.path.relpath(album_dir, args.out)
-            artist_parent = "/".join(relative.split("/")[:-1])
-            push_directory(album_dir, f"{root}/{artist_parent}")
-            shutil.rmtree(album_dir, ignore_errors=True)
+        if args.stream and args.push_serial and staged:
+            # Songs in one album can name different albums, so delete every
+            # directory this album touched; keeping only the last one leaked
+            # the rest.
+            for local_dir in dict.fromkeys(staged):
+                relative = os.path.relpath(local_dir, args.out)
+                artist_parent = "/".join(relative.split("/")[:-1])
+                push_directory(local_dir, f"{root}/{artist_parent}")
+            for local_dir in dict.fromkeys(staged):
+                shutil.rmtree(local_dir, ignore_errors=True)
 
-    manifest = os.path.join(args.out, MANIFEST_NAME)
     with open(manifest, "w", encoding="utf-8") as f:
-        f.write("\n".join(manifest_lines) + ("\n" if manifest_lines else ""))
+        f.write("\n".join(manifest_lines.values()) + ("\n" if manifest_lines else ""))
 
     if args.push_serial and not args.stream:
         print(f"pushing {done} files and the manifest to {root}")
