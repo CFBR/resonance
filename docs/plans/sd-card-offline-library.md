@@ -146,3 +146,40 @@ Vertical slices, each one verifiable on the tablet:
 
 Roughly 1,300 changed lines across a dozen files, most of them new. Stage 1 is
 the one that decides whether the approach holds up, so it comes first.
+
+## Resuming a first fill
+
+The fill runs from the development machine over USB and can be interrupted at
+any point, including by unplugging the tablet.
+
+Start or resume the copy (one album staged at a time, so local disk use does not
+scale with the library):
+
+```sh
+tools/preseed/resonance_preseed.py --server http://HOST:PORT --user USER \
+    --password PASSWORD --all --out /tmp/preseed --stream --resume \
+    --push-serial SERIAL --push-root /storage/XXXX-XXXX/Music
+```
+
+`--resume` lists the device once and skips songs whose file is already there, so
+a restarted run costs no downloads and no transfers for finished albums. The
+manifest is appended as songs are staged, so an interrupted run still leaves a
+usable list, and the final rewrite removes duplicates.
+
+If the fill is cut short and the library should be usable in the meantime,
+rebuild the manifest from what is already on the storage instead of walking the
+library album by album:
+
+```sh
+tools/preseed/resonance_preseed.py --server http://HOST:PORT --user USER \
+    --password PASSWORD --manifest-only --out /tmp/preseed \
+    --push-serial SERIAL --push-root /storage/XXXX-XXXX/Music
+```
+
+That covers every song the server knows whose file is present, in seconds.
+Entries whose file is missing are skipped by the import, so the manifest can be
+complete while the copy is not.
+
+Then, in the app: force-stop it, reopen, Downloads, Import. Forcing the stop
+matters: a long-running process caches directory listings, and files pushed by
+the computer are invisible to a session that listed those folders earlier (#12).
