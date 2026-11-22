@@ -60,17 +60,25 @@ def record_key(server, user, song_id):
     return hashlib.sha256(f"{server}/rest/download\x00{user}\x00{song_id}".encode()).hexdigest()
 
 
+TRIM_EDGE = "".join(chr(c) for c in range(0x21))
+
+
+def kotlin_trim(text):
+    """Kotlin's trim() removes chars up to U+0020 only, unlike str.strip()."""
+    return text.strip(TRIM_EDGE)
+
+
 def safe_component(value, fallback):
     cleaned = "".join("_" if (ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F or c in '/\\:*?"<>|') else c
                       for c in (value or ""))
-    cleaned = cleaned.strip().strip(".").strip()
+    cleaned = kotlin_trim(cleaned).strip(".").strip(TRIM_EDGE)
     out, size = [], 0
     for ch in cleaned:
         size += len(ch.encode("utf-8"))
         if size > 160:
             break
         out.append(ch)
-    result = "".join(out).strip().rstrip(".")
+    result = kotlin_trim("".join(out)).rstrip(".")
     return result or fallback
 
 
@@ -78,13 +86,14 @@ def song_path(song, key):
     artist = safe_component(song.get("artist"), "Unknown artist")
     album = safe_component(song.get("album"), "Unknown album")
     title = safe_component(song.get("title"), "Untitled")
-    numbering = ""
-    disc = song.get("discNumber")
-    track = song.get("track")
-    if disc and disc > 0 and track and track > 0:
-        numbering = f"{disc}-{track:02d} - "
-    elif track and track > 0:
-        numbering = f"{track:02d} - "
+    # Mirrors listOfNotNull(disc, track).joinToString("-"): a disc alone
+    # still produces a numbering, unlike the common two-part assumption.
+    parts = []
+    if song.get("discNumber") and song["discNumber"] > 0:
+        parts.append(str(song["discNumber"]))
+    if song.get("track") and song["track"] > 0:
+        parts.append(f"{song['track']:02d}")
+    numbering = f"{'-'.join(parts)} - " if parts else ""
     suffix = (song.get("suffix") or "").lower()
     if not SUFFIX_RE.match(suffix):
         content = (song.get("contentType") or "").lower().split(";")[0]
