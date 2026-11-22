@@ -21,6 +21,18 @@ All notable changes to Resonance will be documented in this file.
 - Record the actual failure cause on a download error instead of a generic
   message.
 
+### Added
+
+- A foreground download queue: a progress notification with songs remaining and
+  the current file, exponential backoff on transport errors, and resume from the
+  interrupted song after the app is killed mid-fill. Transfers continue with the
+  screen off.
+
+### Fixed
+
+- Stop the queue and retry later when the storage folder is nearly full, instead
+  of marking every song as failed.
+
 ## [0.8.3] - 2026-11-09
 
 ### Fixed

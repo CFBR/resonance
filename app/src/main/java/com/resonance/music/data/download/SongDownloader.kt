@@ -45,7 +45,8 @@ class SongDownloader @Inject constructor(
     private val library: OfflineLibrary,
     private val auth: AuthRepository,
     private val storage: OfflineStorage,
-    private val okHttp: OkHttpClient
+    private val okHttp: OkHttpClient,
+    private val notifications: DownloadNotifications
 ) {
     private val manager = context.getSystemService(DownloadManager::class.java)
     private val preferences = context.getSharedPreferences("song_downloads", Context.MODE_PRIVATE)
@@ -91,6 +92,9 @@ class SongDownloader @Inject constructor(
         added
     }
 
+    /** Songs still awaiting a transfer, for the foreground notification. */
+    suspend fun pendingCount(account: String): Int = pendingTransferCount(library.records(account))
+
     private fun schedule(account: String) {
         for (wifiOnly in listOf(false, true)) {
             if (library.records(account).none { it.wifiOnly == wifiOnly && it.error == null }) continue
@@ -100,6 +104,7 @@ class SongDownloader @Inject constructor(
                     .setInputData(workDataOf("account" to account, "wifiOnly" to wifiOnly))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(
                         if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .build()
             )
         }
@@ -113,6 +118,9 @@ class SongDownloader @Inject constructor(
     }
 
     suspend fun processQueue(account: String, wifiOnly: Boolean = false) {
+        // Computed once: records() re-parses the whole store, so calling it per
+        // song for progress would make a large fill quadratic in bookkeeping.
+        var remaining = pendingTransferCount(library.records(account), wifiOnly)
         for (record in library.records(account).filter { it.wifiOnly == wifiOnly && it.error == null }) {
             if (library.account() != account) return
             if (wifiOnly && !hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
@@ -122,11 +130,29 @@ class SongDownloader @Inject constructor(
                 continue
             }
             try {
-                if (storage.hasRoot()) transferToStorage(record) else enqueue(record)
+                if (storage.hasRoot()) {
+                    if (spaceGuard(storage.freeBytes(), record.song.size)) {
+                        // Stopping the run leaves the song queued, so WorkManager
+                        // retries once space is freed instead of marking
+                        // everything failed.
+                        throw IOException("Waiting for free space on the storage folder")
+                    }
+                    notifications.update(record.song.title, remaining)
+                    transferToStorage(record)
+                    // Success or a recorded failure both clear the song from
+                    // this run's pending set; a transport error throws instead.
+                    remaining = (remaining - 1).coerceAtLeast(0)
+                } else enqueue(record)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
-            } catch (_: Exception) {
-                library.replace(record, record.copy(error = "Could not download. Check connection, storage, and server permissions."))
+            } catch (error: Exception) {
+                when (classifyTransferFailure(error)) {
+                    TransferFailure.RETRY_QUEUE -> throw error
+                    TransferFailure.FAIL_RECORD ->
+                        if (library.record(record.key) == record) {
+                            library.replace(record, record.copy(error = downloadError(error)))
+                        }
+                }
             }
         }
         library.refresh()
@@ -228,11 +254,19 @@ class SongDownloader @Inject constructor(
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            if (library.record(record.key) == record) {
-                library.replace(record, record.copy(error = "Could not download. Check connection, storage, and server permissions. (${error.javaClass.simpleName}: ${error.message})"))
+            when (classifyTransferFailure(error)) {
+                TransferFailure.RETRY_QUEUE -> throw error
+                TransferFailure.FAIL_RECORD ->
+                    if (library.record(record.key) == record) {
+                        library.replace(record, record.copy(error = downloadError(error)))
+                    }
             }
         }
     }
+
+    private fun downloadError(error: Exception) =
+        "Could not download. Check connection, storage, and server permissions. " +
+            "(${error.javaClass.simpleName}: ${error.message})"
 
     private suspend fun completeTransfer(record: OfflineRecord, relativePath: String) {
         if (library.replace(record, record.copy(relativePath = relativePath))) cacheArtwork(record)
