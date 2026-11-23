@@ -44,6 +44,23 @@ data class OfflineTrack(
 )
 
 @Singleton
+/** Song id to ready track, first occurrence winning: the order [OfflineLibrary.localUri]
+ *  matched when it scanned linearly. */
+internal fun buildReadyIndex(tracks: List<OfflineTrack>): Map<String, OfflineTrack> {
+    val index = HashMap<String, OfflineTrack>(tracks.size)
+    for (track in tracks) {
+        if (track.status == OfflineStatus.READY && !index.containsKey(track.record.song.id)) {
+            index[track.record.song.id] = track
+        }
+    }
+    return index
+}
+
+/** Two seconds while DownloadManager reports byte progress, otherwise a slow
+ *  wakeup: record state changes arrive on the changes channel, not the poll. */
+internal fun pollDelayMs(tracks: List<OfflineTrack>): Long =
+    if (tracks.any { it.status == OfflineStatus.DOWNLOADING }) 2_000L else 60_000L
+
 class OfflineLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
     private val auth: AuthRepository,
@@ -56,6 +73,9 @@ class OfflineLibrary @Inject constructor(
     private val changes = Channel<Unit>(Channel.CONFLATED)
     private val _tracks = MutableStateFlow<List<OfflineTrack>>(emptyList())
     val tracks: StateFlow<List<OfflineTrack>> = _tracks.asStateFlow()
+    /** Song id to ready track, rebuilt whenever [_tracks] is. Local lookups
+     *  are O(1); a linear scan per song made building a large queue O(n²). */
+    @Volatile private var readyIndex: Map<String, OfflineTrack> = emptyMap()
     private val _syncFavorites = MutableStateFlow(false)
     val syncFavorites: StateFlow<Boolean> = _syncFavorites.asStateFlow()
 
@@ -66,12 +86,16 @@ class OfflineLibrary @Inject constructor(
         scope.launch {
             auth.generation.collectLatest { generation ->
                 _tracks.value = emptyList()
+                readyIndex = emptyMap()
                 _syncFavorites.value = false
                 if (generation % 2L != 0L) return@collectLatest
                 while (isActive) {
                     refresh()
-                    val active = _tracks.value.any { it.status == OfflineStatus.QUEUED || it.status == OfflineStatus.DOWNLOADING }
-                    withTimeoutOrNull(if (active) 2_000L else 60_000L) { changes.receive() }
+                    // A record only moves on its own through DownloadManager byte
+                    // progress; every other state change (save, retry, completion
+                    // broadcast) arrives on the changes channel, so QUEUED-only
+                    // libraries no longer burn a poll every two seconds.
+                    withTimeoutOrNull(pollDelayMs(_tracks.value)) { changes.receive() }
                     delay(500)
                 }
             }
@@ -150,6 +174,7 @@ class OfflineLibrary @Inject constructor(
         )).map(::inspect) }.orEmpty()
         if (generation == auth.generation.value && account == account()) {
             _tracks.value = result
+            readyIndex = buildReadyIndex(result)
             _syncFavorites.value = account != null && favoritesEnabled(account)
         }
     }
@@ -182,10 +207,8 @@ class OfflineLibrary @Inject constructor(
     }
 
     fun localUri(songId: String): Uri? {
-        val account = account()
-        return _tracks.value.firstOrNull {
-            it.record.account == account && it.record.song.id == songId && it.status == OfflineStatus.READY
-        }?.uri
+        val track = readyIndex[songId] ?: return null
+        return if (track.record.account == account()) track.uri else null
     }
 
     fun artworkFile(coverArt: String, account: String? = account()): File? = account?.let {

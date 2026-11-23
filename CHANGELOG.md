@@ -6,6 +6,17 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Shuffling a full downloads list no longer freezes the screen for about a
+  minute. Local file lookups were a linear scan per song, so an
+  8,890-song queue meant forty million comparisons on the main thread; a
+  ready-song index answers each lookup directly, and the queue build runs
+  off the main thread entirely. The library's background polling also
+  settles down when nothing is transferring: it used to wake every two
+  seconds forever while merely-queued records existed, because queued
+  songs were treated as active progress. Only live DownloadManager
+  transfers need the fast poll; record changes arrive on their own
+  channel.
+
 - Lyrics are cached per song, so a song whose lyrics were seen once shows
   them with no connection. The cache refreshes whenever the lyrics screen
   opens online, and saving a song in-app fetches its lyrics alongside its

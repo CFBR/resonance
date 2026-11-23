@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -178,13 +179,17 @@ class PlaybackManager @Inject constructor(
     }
 
     private fun startPlayback(c: MediaController, songs: List<SongItem>, startIndex: Int) {
-        val (items, kept) = buildItemsAndSongs(songs)
-        if (items.isEmpty()) return
-        _queue.value = kept
-        c.setMediaItems(items, startIndex.coerceIn(0, items.size - 1), 0L)
-        c.prepare()
-        c.play()
-        syncNowPlaying()
+        scope.launch {
+            // Building thousands of media items serializes every song; keep
+            // that off the main thread even though each one is cheap now.
+            val (items, kept) = withContext(Dispatchers.Default) { buildItemsAndSongs(songs) }
+            if (items.isEmpty()) return@launch
+            _queue.value = kept
+            c.setMediaItems(items, startIndex.coerceIn(0, items.size - 1), 0L)
+            c.prepare()
+            c.play()
+            syncNowPlaying()
+        }
     }
 
     /** Build media items and the matching song list together so [_queue] never
