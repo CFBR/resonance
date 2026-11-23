@@ -15,7 +15,8 @@ import javax.inject.Singleton
 class MusicRepository @Inject constructor(
     private val api: SubsonicApi,
     private val apiHelper: SubsonicApiHelper,
-    private val offlineLibrary: OfflineLibrary
+    private val offlineLibrary: OfflineLibrary,
+    private val playlistCache: PlaylistCache
 ) {
     /**
      * Songs with a file on the storage: the offline browse source. Records that
@@ -138,19 +139,25 @@ class MusicRepository @Inject constructor(
 
     // --- Playlists ---
 
-    suspend fun getPlaylists(): List<PlaylistItem> {
-        val root = api.getPlaylists()
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.playlists?.playlist ?: emptyList()
-    }
+    suspend fun getPlaylists(): List<PlaylistItem> = offlineOnError(
+        block = {
+            val root = api.getPlaylists()
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            (env.playlists?.playlist ?: emptyList()).also { playlistCache.putPlaylists(it) }
+        },
+        fallback = { playlistCache.playlists() }
+    )
 
-    suspend fun getPlaylistDetail(id: String): PlaylistDetail? {
-        val root = api.getPlaylist(id)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.playlist
-    }
+    suspend fun getPlaylistDetail(id: String): PlaylistDetail? = offlineOnError(
+        block = {
+            val root = api.getPlaylist(id)
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.playlist?.also { playlistCache.putDetail(it) }
+        },
+        fallback = { playlistCache.detail(id) }
+    )
 
     suspend fun createPlaylist(name: String, songIds: List<String>? = null) {
         val root = api.createPlaylist(name, songIds)

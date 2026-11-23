@@ -45,7 +45,7 @@ class PlaylistViewModel @Inject constructor(
                         songs = detail.entry ?: emptyList()
                     )
                 } else {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = "Playlist not found")
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = "This playlist is not available. Open it once while connected to keep a copy.")
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.localizedMessage ?: "Failed to load")
