@@ -2,10 +2,12 @@ package com.resonance.music.ui.components
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.resonance.music.data.api.models.SongItem
+import com.resonance.music.data.api.models.AlbumItem
 
 /** The activity owns download requests so navigating away from a song does not cancel them. */
 val LocalSongDownload = staticCompositionLocalOf<((SongItem) -> Unit)?> { null }
 val LocalCollectionDownload = staticCompositionLocalOf<((List<SongItem>) -> Unit)?> { null }
+val LocalAlbumDownload = staticCompositionLocalOf<((AlbumItem) -> Unit)?> { null }
 
 /**
  * Per-song overflow-menu actions. Bundled so screens pass one object instead of

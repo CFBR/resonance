@@ -17,6 +17,7 @@ import com.resonance.music.data.download.DownloadResult
 import com.resonance.music.data.download.SongDownloader
 import com.resonance.music.ui.components.LocalSongDownload
 import com.resonance.music.ui.components.LocalCollectionDownload
+import com.resonance.music.ui.components.LocalAlbumDownload
 import android.Manifest
 import android.content.Intent
 import android.app.SearchManager
@@ -88,6 +89,23 @@ class MainActivity : ComponentActivity() {
                                 if (added == 0) "These songs are already saved or queued" else "$added songs queued. View progress in Downloads."
                             } catch (error: CancellationException) { throw error }
                             catch (_: Exception) { "Could not queue downloads. Try again." }
+                            Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                        }
+                    }, LocalAlbumDownload provides { album ->
+                        requestNotifications()
+                        lifecycleScope.launch {
+                            val detail = try { musicRepository.getAlbumDetail(album.id) } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) { null }
+                            val message = when {
+                                detail == null -> "Could not load this album. Check your connection."
+                                detail.song.isNullOrEmpty() -> "This album has no songs to download"
+                                else -> try {
+                                    val added = songDownloader.queue(detail.song)
+                                    if (added == 0) "These songs are already saved or queued" else "$added songs queued. View progress in Downloads."
+                                } catch (error: CancellationException) { throw error }
+                                catch (_: Exception) { "Could not queue downloads. Try again." }
+                            }
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                         }
                     }) {

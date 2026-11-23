@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,6 +55,13 @@ fun AlbumListItem(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        },
+        trailingContent = {
+            LocalAlbumDownload.current?.let { download ->
+                IconButton(onClick = { download(album) }) {
+                    Icon(Icons.Default.Download, contentDescription = "Download ${album.name}")
                 }
             }
         },
