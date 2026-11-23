@@ -1,6 +1,8 @@
 package com.resonance.music.ui.screens.downloads
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +23,7 @@ import com.resonance.music.ui.components.LocalSongDownload
 @Composable
 fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
     val tracks by viewModel.tracks.collectAsState()
+    val groups by viewModel.groups.collectAsState()
     val sync by viewModel.syncFavorites.collectAsState()
     val totals by viewModel.totals.collectAsState()
     val libraryRunning by viewModel.libraryRunning.collectAsState()
@@ -29,11 +32,20 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
     val artworkRunning by viewModel.artworkRunning.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
+    var removingGroup by remember { mutableStateOf<DownloadGroup?>(null) }
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(DownloadFilter.ALL) }
     removing?.let { track ->
         AlertDialog(onDismissRequest = { removing = null }, title = { Text("Remove download?") },
             text = { Text("Delete the saved copy of ${track.record.song.title} from this device?") },
             confirmButton = { TextButton(onClick = { viewModel.remove(track); removing = null }) { Text("Remove") } },
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } })
+    }
+    removingGroup?.let { group ->
+        AlertDialog(onDismissRequest = { removingGroup = null }, title = { Text("Remove album?") },
+            text = { Text("Delete the ${group.songs.size} saved copies of ${group.album} from this device?") },
+            confirmButton = { TextButton(onClick = { viewModel.removeGroup(group); removingGroup = null }) { Text("Remove") } },
+            dismissButton = { TextButton(onClick = { removingGroup = null }) { Text("Cancel") } })
     }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Downloads") }, navigationIcon = {
@@ -83,31 +95,68 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                         else OutlinedButton(onClick = viewModel::startArtworkPrefetch) { Text("Fetch") }
                     }
                 )
-                if (tracks.isEmpty()) Text("Download songs, albums, playlists, or artists to listen here without a connection.", Modifier.padding(16.dp))
-            }
-            items(tracks, key = { it.record.key }) { track ->
-                val song = track.record.song
-                Column {
-                    ListItem(
-                        headlineContent = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = { Text(when (track.status) {
-                            OfflineStatus.READY -> listOfNotNull(song.artist, song.album).joinToString(" • ")
-                            OfflineStatus.QUEUED -> "Queued; waiting for a connection"
-                            OfflineStatus.DOWNLOADING -> if (track.total > 0) "Downloading ${(track.bytes * 100 / track.total).coerceIn(0, 100)}%" else "Downloading"
-                            OfflineStatus.FAILED -> track.record.error ?: "Download failed"
-                        }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        leadingContent = { AsyncImage(model = song.coverArt?.let(viewModel::coverArt), contentDescription = null, modifier = Modifier.size(48.dp)) },
-                        trailingContent = {
-                            Row {
-                                if (track.status == OfflineStatus.FAILED) IconButton(onClick = { download?.invoke(song) }) { Icon(Icons.Default.Refresh, "Retry ${song.title}") }
-                                IconButton(onClick = { removing = track }) { Icon(Icons.Default.DeleteOutline, "Remove ${song.title}") }
-                            }
-                        },
-                        modifier = Modifier.clickable(enabled = track.status == OfflineStatus.READY) { viewModel.play(song.id) }
+                if (tracks.isEmpty()) {
+                    Text("Download songs, albums, playlists, or artists to listen here without a connection.", Modifier.padding(16.dp))
+                } else {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it; viewModel.setQuery(it) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("Search saved songs") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = ""; viewModel.setQuery("") }) { Icon(Icons.Default.Close, "Clear search") } },
+                        singleLine = true
                     )
-                    if (track.status == OfflineStatus.DOWNLOADING) {
-                        if (track.total > 0) LinearProgressIndicator(progress = { (track.bytes.toFloat() / track.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                        else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Row(
+                        Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val ready = tracks.count { it.status == OfflineStatus.READY }
+                        val waiting = tracks.count { it.status == OfflineStatus.QUEUED || it.status == OfflineStatus.DOWNLOADING }
+                        val failed = tracks.count { it.status == OfflineStatus.FAILED }
+                        FilterChip(selected = filter == DownloadFilter.ALL, onClick = { filter = DownloadFilter.ALL; viewModel.setStatusFilter(DownloadFilter.ALL) }, label = { Text("All ${tracks.size}") })
+                        FilterChip(selected = filter == DownloadFilter.SAVED, onClick = { filter = DownloadFilter.SAVED; viewModel.setStatusFilter(DownloadFilter.SAVED) }, label = { Text("Saved $ready") })
+                        FilterChip(selected = filter == DownloadFilter.WAITING, onClick = { filter = DownloadFilter.WAITING; viewModel.setStatusFilter(DownloadFilter.WAITING) }, label = { Text("Waiting $waiting") })
+                        FilterChip(selected = filter == DownloadFilter.FAILED, onClick = { filter = DownloadFilter.FAILED; viewModel.setStatusFilter(DownloadFilter.FAILED) }, label = { Text("Failed $failed") })
+                    }
+                }
+            }
+            if (tracks.isNotEmpty() && groups.isEmpty()) item {
+                Text("No songs match the search or filter.", Modifier.padding(16.dp))
+            }
+            groups.forEach { group ->
+                item(key = "header:" + (group.songs.first().record.song.albumId ?: "song:" + group.songs.first().record.song.id)) {
+                    ListItem(
+                        headlineContent = { Text(group.album, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = { Text(listOfNotNull(group.artist, "${group.songs.size} songs").joinToString(" • "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingContent = { AsyncImage(model = group.coverArt?.let(viewModel::coverArt), contentDescription = null, modifier = Modifier.size(48.dp)) },
+                        trailingContent = { IconButton(onClick = { removingGroup = group }) { Icon(Icons.Default.DeleteOutline, "Remove album ${group.album}") } }
+                    )
+                }
+                items(group.songs, key = { it.record.key }) { track ->
+                    val song = track.record.song
+                    Column {
+                        ListItem(
+                            headlineContent = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text(when (track.status) {
+                                OfflineStatus.READY -> listOfNotNull(song.artist, song.album).joinToString(" • ")
+                                OfflineStatus.QUEUED -> "Queued; waiting for a connection"
+                                OfflineStatus.DOWNLOADING -> if (track.total > 0) "Downloading ${(track.bytes * 100 / track.total).coerceIn(0, 100)}%" else "Downloading"
+                                OfflineStatus.FAILED -> track.record.error ?: "Download failed"
+                            }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            leadingContent = { AsyncImage(model = song.coverArt?.let(viewModel::coverArt), contentDescription = null, modifier = Modifier.size(48.dp)) },
+                            trailingContent = {
+                                Row {
+                                    if (track.status == OfflineStatus.FAILED) IconButton(onClick = { download?.invoke(song) }) { Icon(Icons.Default.Refresh, "Retry ${song.title}") }
+                                    IconButton(onClick = { removing = track }) { Icon(Icons.Default.DeleteOutline, "Remove ${song.title}") }
+                                }
+                            },
+                            modifier = Modifier.clickable(enabled = track.status == OfflineStatus.READY) { viewModel.play(song.id) }
+                        )
+                        if (track.status == OfflineStatus.DOWNLOADING) {
+                            if (track.total > 0) LinearProgressIndicator(progress = { (track.bytes.toFloat() / track.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                            else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
                     }
                 }
             }

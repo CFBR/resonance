@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- The downloads list is now a management console instead of an
+  8,890-row wall. A search box finds a song by title, artist, or album;
+  status chips split saved, waiting, and failed; and rows group under
+  their album, with one remove button that clears the whole album after
+  a count-first confirmation. The grouping, filtering, and ordering live
+  in one pure mapping with tests, computed off the main thread.
+
 - Shuffling a full downloads list no longer freezes the screen for about a
   minute. Local file lookups were a linear scan per song, so an
   8,890-song queue meant forty million comparisons on the main thread; a
