@@ -6,6 +6,12 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- A one-pass artwork fetch downloads a cover for every saved song that lacks
+  one, so the offline library browses with complete artwork. It runs on
+  Wi-Fi only, survives interruption by picking up where it left off, starts
+  automatically after an import, and can also be started from the Downloads
+  screen.
+
 - The library tabs and search now work without a connection: when the server
   cannot be reached, artists, albums, genres, favorites, and search results
   come from the songs saved on the device. Only a connectivity failure takes

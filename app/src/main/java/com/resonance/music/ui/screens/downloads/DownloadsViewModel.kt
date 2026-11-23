@@ -31,6 +31,8 @@ class DownloadsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val importRunning: StateFlow<Boolean> = downloader.workRunning("import")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val artworkRunning: StateFlow<Boolean> = downloader.workRunning("artwork")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setSyncFavorites(enabled: Boolean) = downloader.setSyncFavorites(enabled)
     fun startLibraryDownload() = downloader.startLibraryDownload()
@@ -39,6 +41,8 @@ class DownloadsViewModel @Inject constructor(
     fun cancelManifestExport() = downloader.cancelManifestExport()
     fun startManifestImport() = downloader.startManifestImport()
     fun cancelManifestImport() = downloader.cancelManifestImport()
+    fun startArtworkPrefetch() = downloader.scheduleArtworkPrefetch()
+    fun cancelArtworkPrefetch() = downloader.cancelArtworkPrefetch()
     fun coverArt(id: String) = music.getCoverArtUrl(id)
     fun play(songId: String? = null, shuffle: Boolean = false) {
         val songs = tracks.value.filter { it.status == OfflineStatus.READY }.map { it.record.song }

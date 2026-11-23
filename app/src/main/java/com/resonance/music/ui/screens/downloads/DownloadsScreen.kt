@@ -26,6 +26,7 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
     val libraryRunning by viewModel.libraryRunning.collectAsState()
     val exportRunning by viewModel.exportRunning.collectAsState()
     val importRunning by viewModel.importRunning.collectAsState()
+    val artworkRunning by viewModel.artworkRunning.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
     removing?.let { track ->
@@ -72,6 +73,14 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                             if (importRunning) OutlinedButton(onClick = viewModel::cancelManifestImport) { Text("Stop") }
                             else OutlinedButton(onClick = viewModel::startManifestImport) { Text("Import") }
                         }
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Fetch missing artwork") },
+                    supportingContent = { Text("Download a cover for every saved song that lacks one, so the offline library browses with complete artwork. Wi-Fi only.") },
+                    trailingContent = {
+                        if (artworkRunning) OutlinedButton(onClick = viewModel::cancelArtworkPrefetch) { Text("Stop") }
+                        else OutlinedButton(onClick = viewModel::startArtworkPrefetch) { Text("Fetch") }
                     }
                 )
                 if (tracks.isEmpty()) Text("Download songs, albums, playlists, or artists to listen here without a connection.", Modifier.padding(16.dp))
