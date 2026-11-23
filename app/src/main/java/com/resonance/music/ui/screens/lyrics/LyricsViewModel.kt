@@ -2,7 +2,10 @@ package com.resonance.music.ui.screens.lyrics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.resonance.music.data.repository.CachedLyrics
+import com.resonance.music.data.repository.LyricsCache
 import com.resonance.music.data.repository.MusicRepository
+import com.resonance.music.data.repository.resolveLyrics
 import com.resonance.music.playback.PlaybackManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -34,6 +37,7 @@ data class LyricsUiState(
 @HiltViewModel
 class LyricsViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
+    private val lyricsCache: LyricsCache,
     private val playbackManager: PlaybackManager
 ) : ViewModel() {
 
@@ -58,59 +62,54 @@ class LyricsViewModel @Inject constructor(
     }
 
     private suspend fun loadLyrics(songId: String, artist: String?, title: String) {
-        _uiState.value = _uiState.value.copy(isLoading = true)
+        // Cached lyrics show immediately; the live fetch then refreshes them.
+        val cached = lyricsCache.get(songId)
+        if (cached != null) show(cached)
+        _uiState.value = _uiState.value.copy(isLoading = cached == null)
         try {
-            // Try structured/synced lyrics first (OpenSubsonic)
-            val structured = musicRepository.getStructuredLyrics(songId)
-            val syncedLyrics = structured.firstOrNull { it.synced }
-            val unsyncedLyrics = structured.firstOrNull { !it.synced }
-
-            when {
-                syncedLyrics != null -> {
-                    val lines = syncedLyrics.line?.map { line ->
-                        LyricsLine(startMs = line.start ?: 0L, text = line.value)
-                    } ?: emptyList()
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        lines = lines,
-                        isSynced = true,
-                        plainLyrics = null
-                    )
-                }
-
-                unsyncedLyrics != null -> {
-                    val text = unsyncedLyrics.line?.joinToString("\n") { it.value } ?: ""
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        plainLyrics = text,
-                        lines = emptyList(),
-                        isSynced = false
-                    )
-                }
-
-                else -> {
-                    // Fall back to legacy getLyrics endpoint
-                    val legacy = musicRepository.getLyrics(artist, title)
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        plainLyrics = legacy?.value,
-                        lines = emptyList(),
-                        isSynced = false
-                    )
-                }
+            var resolved = resolveLyrics(musicRepository.getStructuredLyrics(songId), null)
+            if (resolved == null) {
+                resolved = resolveLyrics(emptyList(), musicRepository.getLyrics(artist, title))
+            }
+            resolved?.let { lyricsCache.put(songId, it) }
+            if (resolved != null) {
+                show(resolved)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    plainLyrics = null,
+                    lines = emptyList(),
+                    isSynced = false,
+                    currentLineIndex = -1
+                )
             }
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                plainLyrics = null,
-                lines = emptyList(),
-                isSynced = false,
-                currentLineIndex = -1
-            )
+            // No connection and nothing cached: the screen reports that.
+            // With a cache, its contents stand.
+            if (cached == null) {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    plainLyrics = null,
+                    lines = emptyList(),
+                    isSynced = false,
+                    currentLineIndex = -1
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = false)
+            }
         }
+    }
+
+    private fun show(lyrics: CachedLyrics) {
+        _uiState.value = _uiState.value.copy(
+            isLoading = false,
+            lines = if (lyrics.synced) lyrics.startMs.zip(lyrics.text).map { LyricsLine(it.first, it.second) } else emptyList(),
+            plainLyrics = if (lyrics.synced) null else lyrics.text.joinToString("\n"),
+            isSynced = lyrics.synced,
+            currentLineIndex = -1
+        )
     }
 
     fun seekTo(positionMs: Long) {

@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Lyrics are cached per song, so a song whose lyrics were seen once shows
+  them with no connection. The cache refreshes whenever the lyrics screen
+  opens online, and saving a song in-app fetches its lyrics alongside its
+  cover. No bulk lyrics pass: this server answers lyrics for almost
+  nothing, and a full sweep would hammer it for hours to store mostly
+  empty results.
+
 - Album rows carry a download button everywhere they appear: the library
   grids and lists, search results, artist and genre pages, and the home
   screen. Tapping it queues the album's songs, and offline it uses the
