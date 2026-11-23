@@ -120,7 +120,4 @@ internal fun offlineSong(id: String, songs: List<SongItem>): SongItem? =
     songs.firstOrNull { it.id == id }
 
 private fun offlineAlbumGroups(songs: List<SongItem>): Map<String, List<SongItem>> =
-    songs.filterNotNull { it.albumId }.groupBy { it.albumId!! }
-
-private inline fun <T> List<T>.filterNotNull(selector: (T) -> String?): List<T> =
-    filter { selector(it) != null }
+    songs.filter { it.albumId != null }.groupBy { it.albumId!! }
