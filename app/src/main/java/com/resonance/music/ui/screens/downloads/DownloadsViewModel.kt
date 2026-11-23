@@ -5,9 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.resonance.music.data.download.*
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.playback.PlaybackManager
+import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -22,6 +26,13 @@ class DownloadsViewModel @Inject constructor(
 ) : ViewModel() {
     val tracks = library.tracks
     val syncFavorites = library.syncFavorites
+    /** Search text and status bucket for the management console. */
+    val query = MutableStateFlow("")
+    val statusFilter = MutableStateFlow(DownloadFilter.ALL)
+    val groups: StateFlow<List<DownloadGroup>> = combine(tracks, query, statusFilter) { t, q, f ->
+        consoleGroups(t, q, f)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totals: StateFlow<OfflineTotals> = tracks
         .map(::offlineTotals)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), OfflineTotals(0, 0, 0))
@@ -35,6 +46,8 @@ class DownloadsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setSyncFavorites(enabled: Boolean) = downloader.setSyncFavorites(enabled)
+    fun setQuery(text: String) { query.value = text }
+    fun setStatusFilter(filter: DownloadFilter) { statusFilter.value = filter }
     fun startLibraryDownload() = downloader.startLibraryDownload()
     fun cancelLibraryDownload() = downloader.cancelLibraryDownload()
     fun startManifestExport() = downloader.startManifestExport()
@@ -50,4 +63,5 @@ class DownloadsViewModel @Inject constructor(
         playback.playSongs(if (shuffle) songs.shuffled() else songs, songs.indexOfFirst { it.id == songId }.coerceAtLeast(0))
     }
     fun remove(track: OfflineTrack) { viewModelScope.launch { library.remove(track) } }
+    fun removeGroup(group: DownloadGroup) { viewModelScope.launch { group.songs.forEach { library.remove(it) } } }
 }
