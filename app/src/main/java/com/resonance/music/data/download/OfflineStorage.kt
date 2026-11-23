@@ -95,6 +95,14 @@ class OfflineStorage @Inject constructor(
 
     fun exists(relativePath: String): Boolean = runCatching { documentUri(relativePath) }.getOrNull() != null
 
+    /** Drops the cached directory structure so the next lookup re-reads it
+     *  from the provider. The manifest import is the one operation that must
+     *  observe files a computer pushed while the process was running; every
+     *  other caller is better served by the cache. */
+    fun dropStructureCache() {
+        directories.clear()
+    }
+
     /** Resolves a stored file to a content URI, or null when it is gone. */
     fun documentUri(relativePath: String): Uri? = synchronized(structureLock) {
         val root = rootUri() ?: return null
