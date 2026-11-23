@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -59,4 +60,13 @@ class SettingsStore @Inject constructor(
             if (uri == null) it.remove(Keys.OFFLINE_ROOT) else it[Keys.OFFLINE_ROOT] = uri
         }
     }
+
+    /** The picked root as stored, read straight from the store.
+     *
+     *  [offlineRoot] mirrors the store for the UI and starts at null until its
+     *  collector runs, so it cannot tell "nothing picked" from "not loaded
+     *  yet". Code that must not lose the user's choice, like a test that
+     *  points the app somewhere else and puts it back, reads here instead. */
+    suspend fun storedOfflineRoot(): String? =
+        context.settingsDataStore.data.first()[Keys.OFFLINE_ROOT]
 }

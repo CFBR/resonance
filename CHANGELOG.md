@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Instrumented storage tests no longer leave the installed app without a
+  storage folder. They pointed the app at a fake provider and cleared the
+  setting afterwards, so a device that ran the tests showed an empty
+  savings list until someone picked the folder again. The tests now read
+  the stored folder before they touch it and put it back, and skip the
+  restore entirely if setup never got that far.
+
 - Import now finds files a computer pushed while the app was running. It
   used to keep the directory listings it read at startup, so a push landed
   behind a stale cache and import marked almost nothing ready; the app
