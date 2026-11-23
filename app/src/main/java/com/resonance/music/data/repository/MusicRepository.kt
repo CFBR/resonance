@@ -30,7 +30,8 @@ class MusicRepository @Inject constructor(
     private val apiHelper: SubsonicApiHelper,
     private val offlineLibrary: OfflineLibrary,
     private val playlistCache: PlaylistCache,
-    private val artistInfoCache: ArtistInfoCache
+    private val artistInfoCache: ArtistInfoCache,
+    private val serverHealth: ServerHealth
 ) {
     /**
      * Songs with a file on the storage: the offline browse source. Records that
@@ -43,15 +44,38 @@ class MusicRepository @Inject constructor(
     /**
      * Serves a library view from the saved songs when the network itself
      * failed. A server that answered with an error is not a connectivity
-     * problem, so only IOException takes the fallback; cancellation is not an
-     * IOException and passes through untouched.
+     * problem, so it is reported rather than papered over. Cancellation passes
+     * through untouched.
+     *
+     * A recent failure short-circuits the live call: the screens the user opens
+     * after a failed one would otherwise each wait out the same timeout.
      */
-    private inline fun <T> offlineOnError(block: () -> T, fallback: () -> T): T =
-        try {
-            block()
-        } catch (error: IOException) {
+    private inline fun <T> offlineOnError(block: () -> T, fallback: () -> T): T {
+        if (!serverHealth.available()) return fallback()
+        return try {
+            block().also { serverHealth.noteSuccess() }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!isUnreachable(error)) throw error
+            serverHealth.noteFailure()
             fallback()
         }
+    }
+
+    /** Runs a live read that may simply have nothing to say. Returns null when
+     *  the server gave no usable answer; cancellation still passes through. */
+    private suspend fun <T> liveOrNull(block: suspend () -> T?): T? {
+        if (!serverHealth.available()) return null
+        return try {
+            block()?.also { serverHealth.noteSuccess() }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (isUnreachable(error)) serverHealth.noteFailure()
+            null
+        }
+    }
     // --- Artists ---
 
     suspend fun getSong(id: String): SongItem? = offlineOnError(
@@ -89,11 +113,9 @@ class MusicRepository @Inject constructor(
      * still shows with no connection; a failed fetch falls back to that copy.
      */
     suspend fun getArtistInfo(id: String): ArtistInfo2? {
-        val live = try {
+        val live = liveOrNull {
             val root = api.getArtistInfo2(id)
-            if (!root.response.isOk) null else root.response.artistInfo2
-        } catch (_: Exception) {
-            null
+            if (root.response.isOk) root.response.artistInfo2 else null
         }
         if (live != null) {
             artistInfoCache.put(id, live)
@@ -111,17 +133,11 @@ class MusicRepository @Inject constructor(
         return env.albumList2?.album ?: emptyList()
     }
 
-    /** One shelf, or null when the server could not answer at all. Cancellation
-     *  passes through; a server that answers with an error counts as no answer,
-     *  which is how the home screen has always treated a single failing shelf. */
+    /** One shelf, or null when the server could not answer at all. A server that
+     *  answers with an error counts as no answer, which is how the home screen
+     *  has always treated a single failing shelf. */
     private suspend fun albumListOrNull(type: String, size: Int): List<AlbumItem>? =
-        try {
-            albumListLive(type, size, 0, null)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            null
-        }
+        liveOrNull { albumListLive(type, size, 0, null) }
 
     suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0, genre: String? = null): List<AlbumItem> =
         offlineOnError(

@@ -6,6 +6,15 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Offline views reach the saved copy much faster. The first screen opened
+  with no reachable server still waits one connection attempt, now limited
+  to ten seconds instead of thirty; after that failure the app remembers it
+  for twenty seconds, so the next screens read the saved records
+  immediately instead of each waiting out the same timeout. A network
+  change, or any request that succeeds, forgets the failure right away.
+  A hotspot login page that answers instead of the server also counts as
+  unreachable, so the saved copy still appears.
+
 - Home stops claiming a play history it does not have offline. The three
   sorted shelves used to show the saved albums in name order under
   "Recently played", "Newest additions", and "Most played". With no

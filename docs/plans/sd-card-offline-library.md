@@ -188,15 +188,17 @@ even though the process has been running throughout. No restart is needed.
 
 Tracked as issues, in recommended order:
 
-1. #15 offline browse and search fallback (the keystone; the saved records
-   already carry the metadata, so no server round trips are needed)
-2. #16 prefetch artwork for saved songs (the pre-seed leaves covers unfetched
-   until each is viewed once while online)
-3. #17 per-row download actions in the library and search views
-4. #18 downloads screen as a management console
-5. #19 cache and prefetch lyrics
-6. #14 queue-build performance (the shuffle freeze)
+Built in this order: #15 offline browse and search fallback, #16 artwork
+prefetch, #17 per-row download actions, #18 downloads as a management console,
+#19 lyrics cache, #14 queue-build performance, #29 playlists, #31 artist
+biographies, #33 and #34 Home.
+
+When the server does not answer, browse screens serve the saved records.
+`ServerHealth` remembers a failure: the first one costs one connect timeout, and
+the screens that follow in the next 20 seconds read the saved copy instead of
+waiting out another. A network change or any successful call reopens it.
 
 Known gaps to decide deliberately, not discover: offline favorites reflect the
 state when each song was saved, offline playlists read their cached copy until
-the next online visit, and the Home screen still needs the server.
+the next online visit, and a playlist entry that was never saved still tries to
+stream before it fails.
