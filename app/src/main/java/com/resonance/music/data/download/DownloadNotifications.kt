@@ -113,6 +113,17 @@ class DownloadNotifications @Inject constructor(
         manager.cancel(ID_IMPORT)
     }
 
+    fun artworkProgress(fetched: Int, total: Int): Notification =
+        simpleProgress(ID_ARTWORK, "Fetching artwork", "$fetched of $total covers")
+
+    fun updateArtwork(fetched: Int, total: Int) {
+        manager.notify(ID_ARTWORK, artworkProgress(fetched, total))
+    }
+
+    fun clearArtwork() {
+        manager.cancel(ID_ARTWORK)
+    }
+
     fun clearLibrary() {
         manager.cancel(ID_LIBRARY)
     }
@@ -126,6 +137,7 @@ class DownloadNotifications @Inject constructor(
         const val ID_LIBRARY = 43
         const val ID_EXPORT = 44
         const val ID_IMPORT = 45
+        const val ID_ARTWORK = 46
         const val CHANNEL_ID = "downloads"
     }
 }

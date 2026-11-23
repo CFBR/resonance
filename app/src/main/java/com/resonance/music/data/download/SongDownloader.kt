@@ -11,8 +11,11 @@ import com.resonance.music.data.api.SubsonicApiHelper
 import com.resonance.music.data.api.models.SongItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -108,6 +111,56 @@ class SongDownloader @Inject constructor(
                     .build()
             )
         }
+    }
+
+    /**
+     * Fetches every saved song's cover that is not already in the artwork
+     * store, so an offline library browses with complete artwork. A cover the
+     * server cannot serve counts as done, not as a failure: audio never
+     * depended on it. A run of failures means the network dropped mid-pass;
+     * the worker retries, and the next pass skips whatever landed.
+     */
+    suspend fun prefetchArtwork(account: String): Int {
+        if (library.account() != account) return 0
+        val songs = library.browseSongs()
+        val covers = missingArtworkCovers(songs) { cover -> library.artworkFile(cover, account)?.isFile == true }
+        val fetched = java.util.concurrent.atomic.AtomicInteger(0)
+        val failures = java.util.concurrent.atomic.AtomicInteger(0)
+        coroutineScope {
+            val gate = Semaphore(4)
+            covers.forEach { cover ->
+                launch {
+                    gate.withPermit {
+                        if (failures.get() >= 20) return@withPermit
+                        if (fetchArtwork(cover, account)) {
+                            failures.set(0)
+                            fetched.incrementAndGet()
+                        } else {
+                            failures.incrementAndGet()
+                        }
+                        notifications.updateArtwork(fetched.get(), covers.size)
+                    }
+                }
+            }
+        }
+        if (failures.get() >= 20) throw IOException("The network dropped while fetching artwork")
+        return fetched.get()
+    }
+
+    fun scheduleArtworkPrefetch() {
+        val account = library.account() ?: return
+        val work = WorkManager.getInstance(context)
+        work.enqueueUniqueWork("artwork_$account", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<DownloadWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .setInputData(workDataOf("account" to account, "artwork" to true))
+                .build())
+    }
+
+    fun cancelArtworkPrefetch() {
+        val account = library.account() ?: return
+        WorkManager.getInstance(context).cancelUniqueWork("artwork_$account")
     }
 
     private fun hasUnmeteredWifi(): Boolean {
@@ -274,23 +327,33 @@ class SongDownloader @Inject constructor(
 
     private suspend fun cacheArtwork(record: OfflineRecord) {
         val cover = record.song.coverArt ?: return
-        val file = library.artworkFile(cover, record.account) ?: return
-        if (file.exists() || library.account() != record.account) return
         if (record.wifiOnly && !hasUnmeteredWifi()) return
+        fetchArtwork(cover, record.account)
+    }
+
+    /**
+     * Fetches one cover into the permanent artwork store. Returns false when
+     * the server has none or the write fails; audio does not depend on it.
+     */
+    suspend fun fetchArtwork(cover: String, account: String): Boolean {
+        if (library.account() != account) return false
+        val file = library.artworkFile(cover, account) ?: return false
+        if (file.exists()) return true
         try {
             val result = context.imageLoader.execute(ImageRequest.Builder(context)
                 .data(apiHelper.getCoverArtUrl(cover, 600)).size(600).allowHardware(false).build())
-            if (result is SuccessResult && library.account() == record.account) {
+            if (result is SuccessResult && library.account() == account) {
                 file.parentFile?.mkdirs()
                 val temporary = java.io.File(file.path + ".tmp")
                 temporary.outputStream().use { result.drawable.toBitmap().compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 temporary.renameTo(file)
+                return true
             }
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (_: Exception) {
-            // Audio remains available when the server has no artwork.
         }
+        return false
     }
 
     fun setSyncFavorites(enabled: Boolean) {
@@ -462,6 +525,7 @@ class SongDownloader @Inject constructor(
             notifications.updateImport(imported)
         }
         library.refresh()
+        scheduleArtworkPrefetch()
         imported
     }
 
