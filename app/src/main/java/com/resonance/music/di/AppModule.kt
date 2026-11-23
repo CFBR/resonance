@@ -52,7 +52,12 @@ object AppModule {
             .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
+            // Connecting to a blackholed route is the slow case: with Wi-Fi up
+            // and the tunnel down, connect() waits out the whole timeout before
+            // the saved copy can be served. The server is on a LAN or a
+            // tailnet, so accepting a connection takes milliseconds; reading a
+            // slow answer still gets the full read timeout.
+            .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
