@@ -8,6 +8,7 @@ import com.resonance.music.data.api.models.GenreItem
 import com.resonance.music.data.api.models.SearchResult
 import com.resonance.music.data.api.models.StarredResult
 import com.resonance.music.data.api.models.SongItem
+import kotlin.random.Random
 
 /**
  * Derives the library views from saved songs when the server cannot be
@@ -114,6 +115,15 @@ internal fun offlineSearch(query: String, songs: List<SongItem>): SearchResult {
         song = songHits
     )
 }
+
+/** A shuffled sample of saved songs, for a shuffle that has no server to ask.
+ *  Order is random by design; only the contents and the cap are contract. */
+internal fun offlineRandomSongs(songs: List<SongItem>, size: Int, random: Random = Random.Default): List<SongItem> =
+    songs.shuffled(random).take(size.coerceAtLeast(0))
+
+/** Albums with saved songs, shuffled, for the home screen's random shelf. */
+internal fun offlineRandomAlbums(songs: List<SongItem>, size: Int, random: Random = Random.Default): List<AlbumItem> =
+    offlineAlbums(songs).shuffled(random).take(size.coerceAtLeast(0))
 
 /** One saved song by id, for detail screens that load a single song. */
 internal fun offlineSong(id: String, songs: List<SongItem>): SongItem? =

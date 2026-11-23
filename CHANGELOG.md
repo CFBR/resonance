@@ -6,6 +6,12 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Shuffle all now works with no connection. It asked the server for a
+  random pick and swallowed the failure, so the landing screen's main
+  button did nothing offline; it now shuffles the saved songs instead.
+  The Random picks shelf gets the same treatment, so it is shuffled rather
+  than another copy of the name-sorted list the other shelves show.
+
 - Artist pages keep their introduction offline. The biography and
   similar-artists strip come from a separate server call that had no
   fallback, so an artist page with no connection was a bare album list.

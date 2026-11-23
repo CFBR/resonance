@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 /**
  * The offline browse fallback derives the library views from saved songs, so
@@ -136,6 +137,38 @@ class OfflineBrowseTest {
         assertTrue(result.artist.isNullOrEmpty())
         assertTrue(result.album.isNullOrEmpty())
         assertTrue(result.song.isNullOrEmpty())
+    }
+
+    @Test
+    fun `random songs are drawn from the saved set and capped`() {
+        val picked = offlineRandomSongs(saved, size = 2, random = Random(7))
+        assertEquals(2, picked.size)
+        assertTrue(picked.all { candidate -> saved.any { it.id == candidate.id } })
+        assertEquals(2, picked.map { it.id }.distinct().size)
+    }
+
+    @Test
+    fun `random songs respect an oversized or zero request`() {
+        assertEquals(saved.map { it.id }.sorted(), offlineRandomSongs(saved, 99, Random(1)).map { it.id }.sorted())
+        assertTrue(offlineRandomSongs(saved, 0, Random(1)).isEmpty())
+        assertTrue(offlineRandomSongs(emptyList(), 5, Random(1)).isEmpty())
+    }
+
+    @Test
+    fun `random songs honour the seed so a retry is reproducible`() {
+        assertEquals(
+            offlineRandomSongs(saved, 3, Random(42)).map { it.id },
+            offlineRandomSongs(saved, 3, Random(42)).map { it.id }
+        )
+    }
+
+    @Test
+    fun `random albums come from the saved albums and are capped`() {
+        val savedAlbumIds = offlineAlbums(saved).map { it.id }.sorted()
+        val picked = offlineRandomAlbums(saved, size = 1, random = Random(3))
+        assertEquals(1, picked.size)
+        assertTrue(picked.all { it.id in savedAlbumIds })
+        assertEquals(savedAlbumIds, offlineRandomAlbums(saved, 99, Random(3)).map { it.id }.sorted())
     }
 
     @Test
