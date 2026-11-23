@@ -6,6 +6,11 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Album rows carry a download button everywhere they appear: the library
+  grids and lists, search results, artist and genre pages, and the home
+  screen. Tapping it queues the album's songs, and offline it uses the
+  saved copy to decide what still needs downloading.
+
 - A one-pass artwork fetch downloads a cover for every saved song that lacks
   one, so the offline library browses with complete artwork. It runs on
   Wi-Fi only, survives interruption by picking up where it left off, starts
