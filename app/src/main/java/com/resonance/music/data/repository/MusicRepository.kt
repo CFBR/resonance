@@ -123,7 +123,10 @@ class MusicRepository @Inject constructor(
     suspend fun getRecentAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("recent", size)
     suspend fun getNewestAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("newest", size)
     suspend fun getFrequentAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("frequent", size)
-    suspend fun getRandomAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("random", size)
+    suspend fun getRandomAlbums(size: Int = 20): List<AlbumItem> = offlineOnError(
+        block = { getAlbumList("random", size) },
+        fallback = { offlineRandomAlbums(savedSongs(), size) }
+    )
 
     suspend fun getAlbumDetail(id: String): AlbumDetail? = offlineOnError(
         block = {
@@ -219,12 +222,15 @@ class MusicRepository @Inject constructor(
 
     // --- Random songs ---
 
-    suspend fun getRandomSongs(size: Int = 20): List<SongItem> {
-        val root = api.getRandomSongs(size)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.randomSongs?.song ?: emptyList()
-    }
+    suspend fun getRandomSongs(size: Int = 20): List<SongItem> = offlineOnError(
+        block = {
+            val root = api.getRandomSongs(size)
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.randomSongs?.song ?: emptyList()
+        },
+        fallback = { offlineRandomSongs(savedSongs(), size) }
+    )
 
     // --- Scrobble ---
 
