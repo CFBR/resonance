@@ -6,6 +6,12 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Artist pages keep their introduction offline. The biography and
+  similar-artists strip come from a separate server call that had no
+  fallback, so an artist page with no connection was a bare album list.
+  What the server returns for an artist is now kept, and a failed fetch
+  serves that copy.
+
 - Playlists now open with no connection. The app keeps the list and the
   songs of any playlist opened while connected, so the playlists tab and
   a saved playlist's songs render offline instead of failing. The server
