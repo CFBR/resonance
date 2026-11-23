@@ -6,6 +6,14 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- The library tabs and search now work without a connection: when the server
+  cannot be reached, artists, albums, genres, favorites, and search results
+  come from the songs saved on the device. Only a connectivity failure takes
+  the fallback; a server that answers with an error still surfaces the error.
+  Playlists cannot be derived from saved songs and need the server.
+
+### Added
+
 - An offline storage root (typically the SD card) picked with the system folder
   picker. When one is set, downloads run in-app into that folder in original
   quality instead of going to internal storage through DownloadManager.

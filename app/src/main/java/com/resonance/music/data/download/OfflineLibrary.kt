@@ -91,6 +91,7 @@ class OfflineLibrary @Inject constructor(
     @Synchronized
     fun save(record: OfflineRecord) {
         check(preferences.edit().putString("track_${record.key}", gson.toJson(record)).commit())
+        browseCache = null
         changes.trySend(Unit)
     }
 
@@ -99,6 +100,7 @@ class OfflineLibrary @Inject constructor(
         val editor = preferences.edit()
         records.forEach { editor.putString("track_${it.key}", gson.toJson(it)) }
         check(editor.commit())
+        browseCache = null
         changes.trySend(Unit)
     }
 
@@ -113,6 +115,26 @@ class OfflineLibrary @Inject constructor(
     fun record(key: String): OfflineRecord? = preferences.getString("track_$key", null)?.let {
         runCatching { gson.fromJson(it, OfflineRecord::class.java) }.getOrNull()
     }
+
+    /**
+     * Songs with a file on the storage, for the offline browse fallback: the
+     * saved record's metadata, without the per-file storage check that
+     * [refresh] pays for. Presence is trusted from the record, so a file
+     * deleted behind the app's back still appears here; playback then falls
+     * back to streaming, and the Downloads screen shows the truth.
+     *
+     * Parsed once and cached until a record changes, so offline search does
+     * not re-parse the library on every keystroke.
+     */
+    fun browseSongs(): List<SongItem> {
+        val account = account() ?: return emptyList()
+        browseCache?.let { (cachedAccount, songs) -> if (cachedAccount == account) return songs }
+        val songs = records(account).filter { it.relativePath != null }.map { it.song }
+        browseCache = account to songs
+        return songs
+    }
+
+    @Volatile private var browseCache: Pair<String, List<SongItem>>? = null
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         val generation = auth.generation.value
@@ -177,6 +199,7 @@ class OfflineLibrary @Inject constructor(
             if (track.record.account != account()) return@withContext
             val current = record(track.record.key) ?: return@withContext
             preferences.edit().remove("track_${track.record.key}").commit()
+            browseCache = null
             if (current.relativePath != null) storage.delete(current.relativePath)
             else if (current.downloadId >= 0) manager.remove(current.downloadId)
         }
