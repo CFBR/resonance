@@ -6,6 +6,14 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Playlists now open with no connection. The app keeps the list and the
+  songs of any playlist opened while connected, so the playlists tab and
+  a saved playlist's songs render offline instead of failing. The server
+  stays the source of truth: an offline session can read playlists but not
+  change them, a playlist edited elsewhere shows its cached songs until
+  the next online visit, and a playlist never opened shows a line saying
+  to open it once while connected rather than an error.
+
 - Instrumented storage tests no longer leave the installed app without a
   storage folder. They pointed the app at a fake provider and cleared the
   setting afterwards, so a device that ran the tests showed an empty
