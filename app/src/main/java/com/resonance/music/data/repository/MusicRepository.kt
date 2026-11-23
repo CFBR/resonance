@@ -5,6 +5,9 @@ import com.resonance.music.data.api.SubsonicApiHelper
 import com.resonance.music.data.api.models.*
 import com.resonance.music.data.download.OfflineLibrary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,27 +17,56 @@ class MusicRepository @Inject constructor(
     private val apiHelper: SubsonicApiHelper,
     private val offlineLibrary: OfflineLibrary
 ) {
+    /**
+     * Songs with a file on the storage: the offline browse source. Records that
+     * are queued or failed cannot play without the server, so they are skipped.
+     * Parsing happens on the library's own cache, off the calling thread.
+     */
+    private suspend fun savedSongs(): List<SongItem> =
+        withContext(Dispatchers.IO) { offlineLibrary.browseSongs() }
+
+    /**
+     * Serves a library view from the saved songs when the network itself
+     * failed. A server that answered with an error is not a connectivity
+     * problem, so only IOException takes the fallback; cancellation is not an
+     * IOException and passes through untouched.
+     */
+    private inline fun <T> offlineOnError(block: () -> T, fallback: () -> T): T =
+        try {
+            block()
+        } catch (error: IOException) {
+            fallback()
+        }
     // --- Artists ---
 
-    suspend fun getSong(id: String): SongItem? {
-        val response = api.getSong(id).response
-        if (!response.isOk) throw SubsonicException(response.error)
-        return response.song
-    }
+    suspend fun getSong(id: String): SongItem? = offlineOnError(
+        block = {
+            val response = api.getSong(id).response
+            if (!response.isOk) throw SubsonicException(response.error)
+            response.song
+        },
+        fallback = { offlineSong(id, savedSongs()) }
+    )
 
-    suspend fun getArtists(): List<ArtistItem> {
-        val root = api.getArtists()
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.artists?.index?.flatMap { it.artist ?: emptyList() } ?: emptyList()
-    }
+    suspend fun getArtists(): List<ArtistItem> = offlineOnError(
+        block = {
+            val root = api.getArtists()
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.artists?.index?.flatMap { it.artist ?: emptyList() } ?: emptyList()
+        },
+        fallback = { offlineArtists(savedSongs()) }
+    )
 
-    suspend fun getArtistDetail(id: String): ArtistDetail? {
-        val root = api.getArtist(id)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.artist
-    }
+    suspend fun getArtistDetail(id: String): ArtistDetail? = offlineOnError(
+        block = {
+            val root = api.getArtist(id)
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.artist
+        },
+        fallback = { offlineArtistDetail(id, savedSongs()) }
+    )
 
     /** Artist biography + similar artists. Best-effort: older servers lack getArtistInfo2. */
     suspend fun getArtistInfo(id: String): ArtistInfo2? {
@@ -48,43 +80,61 @@ class MusicRepository @Inject constructor(
 
     // --- Albums ---
 
-    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0, genre: String? = null): List<AlbumItem> {
-        val root = api.getAlbumList(type, size, offset, genre)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.albumList2?.album ?: emptyList()
-    }
+    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0, genre: String? = null): List<AlbumItem> =
+        offlineOnError(
+            block = {
+                val root = api.getAlbumList(type, size, offset, genre)
+                val env = root.response
+                if (!env.isOk) throw SubsonicException(env.error)
+                env.albumList2?.album ?: emptyList()
+            },
+            // Server sort types are play statistics the saved copy cannot
+            // reproduce; offline lists carry one honest order, name-sorted.
+            fallback = {
+                offlineAlbums(savedSongs())
+                    .let { if (genre == null) it else it.filter { album -> album.genre == genre } }
+            }
+        )
 
     suspend fun getAlbumsByGenre(genre: String, size: Int = 100, offset: Int = 0): List<AlbumItem> =
         getAlbumList("byGenre", size, offset, genre)
 
-    suspend fun getGenres(): List<GenreItem> {
-        val root = api.getGenres()
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.genres?.genre?.sortedByDescending { it.albumCount ?: 0 } ?: emptyList()
-    }
+    suspend fun getGenres(): List<GenreItem> = offlineOnError(
+        block = {
+            val root = api.getGenres()
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.genres?.genre?.sortedByDescending { it.albumCount ?: 0 } ?: emptyList()
+        },
+        fallback = { offlineGenres(savedSongs()) }
+    )
 
     suspend fun getRecentAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("recent", size)
     suspend fun getNewestAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("newest", size)
     suspend fun getFrequentAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("frequent", size)
     suspend fun getRandomAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("random", size)
 
-    suspend fun getAlbumDetail(id: String): AlbumDetail? {
-        val root = api.getAlbum(id)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.album
-    }
+    suspend fun getAlbumDetail(id: String): AlbumDetail? = offlineOnError(
+        block = {
+            val root = api.getAlbum(id)
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.album
+        },
+        fallback = { offlineAlbumDetail(id, savedSongs()) }
+    )
 
     // --- Search ---
 
-    suspend fun search(query: String): SearchResult {
-        val root = api.search(query)
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.searchResult3 ?: SearchResult()
-    }
+    suspend fun search(query: String): SearchResult = offlineOnError(
+        block = {
+            val root = api.search(query)
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.searchResult3 ?: SearchResult()
+        },
+        fallback = { offlineSearch(query, savedSongs()) }
+    )
 
     // --- Playlists ---
 
@@ -140,12 +190,15 @@ class MusicRepository @Inject constructor(
         api.unstar(artistId = artistId)
     }
 
-    suspend fun getStarred(): StarredResult {
-        val root = api.getStarred()
-        val env = root.response
-        if (!env.isOk) throw SubsonicException(env.error)
-        return env.starred2 ?: StarredResult()
-    }
+    suspend fun getStarred(): StarredResult = offlineOnError(
+        block = {
+            val root = api.getStarred()
+            val env = root.response
+            if (!env.isOk) throw SubsonicException(env.error)
+            env.starred2 ?: StarredResult()
+        },
+        fallback = { offlineStarred(savedSongs()) }
+    )
 
     // --- Random songs ---
 

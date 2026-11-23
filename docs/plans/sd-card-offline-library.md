@@ -183,3 +183,20 @@ complete while the copy is not.
 Then, in the app: force-stop it, reopen, Downloads, Import. Forcing the stop
 matters: a long-running process caches directory listings, and files pushed by
 the computer are invisible to a session that listed those folders earlier (#12).
+
+## Offline experience roadmap
+
+Tracked as issues, in recommended order:
+
+1. #15 offline browse and search fallback (the keystone; the saved records
+   already carry the metadata, so no server round trips are needed)
+2. #16 prefetch artwork for saved songs (the pre-seed leaves covers unfetched
+   until each is viewed once while online)
+3. #17 per-row download actions in the library and search views
+4. #18 downloads screen as a management console
+5. #19 cache and prefetch lyrics
+6. #14 queue-build performance (the shuffle freeze)
+
+Known gaps to decide deliberately, not discover: offline artists have no
+biography, offline favorites reflect the state when each song was saved, and
+the Home screen still needs the server.
