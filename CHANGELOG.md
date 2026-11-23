@@ -6,6 +6,14 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Home stops claiming a play history it does not have offline. The three
+  sorted shelves used to show the saved albums in name order under
+  "Recently played", "Newest additions", and "Most played". With no
+  connection they give way to one "Saved albums" shelf, the "jump back in"
+  hero is dropped, and Random picks keeps working. The four shelves now
+  load as one parallel read instead of four sequential ones, so the
+  offline switch lands in the same time it took before.
+
 - Shuffle all now works with no connection. It asked the server for a
   random pick and swallowed the failure, so the landing screen's main
   button did nothing offline; it now shuffles the saved songs instead.

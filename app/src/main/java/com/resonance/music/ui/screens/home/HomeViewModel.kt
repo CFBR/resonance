@@ -6,8 +6,6 @@ import com.resonance.music.data.api.models.AlbumItem
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.playback.PlaybackManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,14 +18,40 @@ data class HomeUiState(
     val newestAlbums: List<AlbumItem> = emptyList(),
     val frequentAlbums: List<AlbumItem> = emptyList(),
     val randomAlbums: List<AlbumItem> = emptyList(),
+    val savedAlbums: List<AlbumItem> = emptyList(),
+    /** The shelves came from the saved records, not the server's play history. */
+    val fromSavedAlbums: Boolean = false,
     val error: String? = null
 ) {
-    // First album with art — used for the "jump back in" hero.
+    // First album with art — used for the "jump back in" hero. Offline the
+    // shelves are the saved copy, which cannot say what was played last.
     val featured: AlbumItem?
-        get() = (recentAlbums + newestAlbums).firstOrNull { it.coverArt != null }
-            ?: recentAlbums.firstOrNull()
-            ?: newestAlbums.firstOrNull()
+        get() = if (fromSavedAlbums) null else
+            (recentAlbums + newestAlbums).firstOrNull { it.coverArt != null }
+                ?: recentAlbums.firstOrNull()
+                ?: newestAlbums.firstOrNull()
 }
+
+/** One shelf as the screen shows it. */
+internal data class HomeShelf(val key: String, val title: String, val albums: List<AlbumItem>)
+
+/**
+ * The shelves Home offers. With no server, Recently played, Newest additions,
+ * and Most played cannot be backed by anything the saved copy knows, so they
+ * give way to one shelf that says what it is. Random picks and Shuffle all
+ * still work, because a shuffle over the saved songs is exactly what a shuffle
+ * offline means.
+ */
+internal fun homeShelves(state: HomeUiState): List<HomeShelf> =
+    if (state.fromSavedAlbums) listOf(
+        HomeShelf("saved", "Saved albums", state.savedAlbums),
+        HomeShelf("random", "Random picks", state.randomAlbums)
+    ) else listOf(
+        HomeShelf("recent", "Recently played", state.recentAlbums),
+        HomeShelf("newest", "Newest additions", state.newestAlbums),
+        HomeShelf("frequent", "Most played", state.frequentAlbums),
+        HomeShelf("random", "Random picks", state.randomAlbums)
+    )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -67,17 +91,15 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    // Each section loads independently — one failure doesn't block the rest.
-    private suspend fun fetchHome(): HomeUiState = coroutineScope {
-        val recent = async { runCatching { musicRepository.getRecentAlbums(10) }.getOrDefault(emptyList()) }
-        val newest = async { runCatching { musicRepository.getNewestAlbums(10) }.getOrDefault(emptyList()) }
-        val frequent = async { runCatching { musicRepository.getFrequentAlbums(10) }.getOrDefault(emptyList()) }
-        val random = async { runCatching { musicRepository.getRandomAlbums(10) }.getOrDefault(emptyList()) }
-        HomeUiState(
-            recentAlbums = recent.await(),
-            newestAlbums = newest.await(),
-            frequentAlbums = frequent.await(),
-            randomAlbums = random.await()
+    private suspend fun fetchHome(): HomeUiState {
+        val shelves = musicRepository.getHomeShelves(10)
+        return HomeUiState(
+            recentAlbums = shelves.recent,
+            newestAlbums = shelves.newest,
+            frequentAlbums = shelves.frequent,
+            randomAlbums = shelves.random,
+            savedAlbums = shelves.saved,
+            fromSavedAlbums = shelves.fromSavedAlbums
         )
     }
 
