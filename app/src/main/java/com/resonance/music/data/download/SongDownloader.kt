@@ -525,6 +525,9 @@ class SongDownloader @Inject constructor(
      */
     suspend fun importManifest(): Int = withContext(Dispatchers.IO) {
         val account = library.account() ?: throw IOException("Sign in to import saved files.")
+        // A warm cache lists the storage as it was when the app last looked;
+        // import must see files pushed since then, so start from a clean read.
+        storage.dropStructureCache()
         val input = storage.openInput(MANIFEST_NAME)
             ?: throw IOException("No manifest file in the storage folder. Export it or copy one from your computer.")
         val entries = mutableListOf<ManifestEntry>()

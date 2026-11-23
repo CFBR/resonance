@@ -41,7 +41,7 @@ class LyricsIntegrationTest {
         fixture("control?lyrics=structured")
         main {
             dependencies.playback().playSongs(songs)
-            viewModel = LyricsViewModel(dependencies.music(), dependencies.playback())
+            viewModel = LyricsViewModel(dependencies.music(), dependencies.lyricsCache(), dependencies.playback())
         }
         try {
             waitUntil("Structured lyrics load") { viewModel.uiState.value.run { title == "First Light" && isSynced && lines.isNotEmpty() && !isLoading } }
@@ -67,7 +67,7 @@ class LyricsIntegrationTest {
         lateinit var viewModel: LyricsViewModel
         main {
             dependencies.playback().playSongs(songs)
-            viewModel = LyricsViewModel(dependencies.music(), dependencies.playback())
+            viewModel = LyricsViewModel(dependencies.music(), dependencies.lyricsCache(), dependencies.playback())
         }
         try {
             waitUntil("Offline lyrics finish without crashing") {
@@ -87,7 +87,7 @@ class LyricsIntegrationTest {
         lateinit var viewModel: LyricsViewModel
         main {
             dependencies.playback().playSongs(songs)
-            viewModel = LyricsViewModel(dependencies.music(), dependencies.playback())
+            viewModel = LyricsViewModel(dependencies.music(), dependencies.lyricsCache(), dependencies.playback())
         }
         try {
             waitUntil("First lyrics request is held") { org.json.JSONObject(fixture("stats")).optInt("getLyricsBySongId") > before }

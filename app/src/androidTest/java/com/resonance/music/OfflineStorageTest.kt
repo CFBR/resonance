@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * Exercises OfflineStorage against the real DocumentsContract call paths via
@@ -92,5 +93,24 @@ class OfflineStorageTest {
         assertFalse(storage.exists(missing))
         assertNull(storage.documentUri(missing))
         assertFalse(storage.delete(missing))
+    }
+
+    @Test
+    fun theStructureCacheDoesNotHideFilesPushedFromOutside() = runBlocking {
+        val path = "Resonance/TestArtist/TestAlbum/03 - Outside [cccccccccccc].flac"
+        // Prime the cache with a listing that does not contain the file.
+        assertFalse(storage.exists(path))
+
+        // A computer pushes the file while the process keeps running: the
+        // provider sees the disk, the cache still answers from the old listing.
+        val pushed = File(context.getDir("fake_documents", Context.MODE_PRIVATE), path)
+        pushed.parentFile!!.mkdirs()
+        pushed.writeBytes(ByteArray(16) { 5 })
+        assertFalse(storage.exists(path))
+
+        // Import drops the structure cache and the next lookup sees the file.
+        storage.dropStructureCache()
+        assertTrue(storage.exists(path))
+        assertTrue(storage.delete(path))
     }
 }

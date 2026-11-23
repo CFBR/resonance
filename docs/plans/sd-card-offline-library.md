@@ -180,9 +180,9 @@ That covers every song the server knows whose file is present, in seconds.
 Entries whose file is missing are skipped by the import, so the manifest can be
 complete while the copy is not.
 
-Then, in the app: force-stop it, reopen, Downloads, Import. Forcing the stop
-matters: a long-running process caches directory listings, and files pushed by
-the computer are invisible to a session that listed those folders earlier (#12).
+Then, in the app: Downloads, Import. The import drops the cached directory
+structure before it checks for files, so it sees what the computer just pushed
+even though the process has been running throughout. No restart is needed.
 
 ## Offline experience roadmap
 

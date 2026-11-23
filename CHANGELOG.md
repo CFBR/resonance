@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Import now finds files a computer pushed while the app was running. It
+  used to keep the directory listings it read at startup, so a push landed
+  behind a stale cache and import marked almost nothing ready; the app
+  carried a "force-stop first" workaround for that. The import drops the
+  cached structure before it checks for files, since it is the one
+  operation that must see changes made outside the app.
+
 - The downloads list is now a management console instead of an
   8,890-row wall. A search box finds a song by title, artist, or album;
   status chips split saved, waiting, and failed; and rows group under

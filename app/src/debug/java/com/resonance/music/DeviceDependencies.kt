@@ -3,6 +3,7 @@ package com.resonance.music
 import com.resonance.music.data.download.OfflineLibrary
 import com.resonance.music.data.download.SongDownloader
 import com.resonance.music.data.repository.AuthRepository
+import com.resonance.music.data.repository.LyricsCache
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.playback.MediaItems
 import dagger.hilt.EntryPoint
@@ -14,6 +15,7 @@ import dagger.hilt.components.SingletonComponent
 interface DeviceDependencies {
     fun auth(): AuthRepository
     fun music(): MusicRepository
+    fun lyricsCache(): LyricsCache
     fun downloader(): SongDownloader
     fun offline(): OfflineLibrary
     fun mediaItems(): MediaItems
