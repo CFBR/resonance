@@ -112,10 +112,9 @@ fun HomeScreen(
                     }
                 }
 
-                albumShelf("recent", "Recently played", uiState.recentAlbums, onAlbumClick, onSeeAllClick, coverArtUrlBuilder)
-                albumShelf("newest", "Newest additions", uiState.newestAlbums, onAlbumClick, onSeeAllClick, coverArtUrlBuilder)
-                albumShelf("frequent", "Most played", uiState.frequentAlbums, onAlbumClick, onSeeAllClick, coverArtUrlBuilder)
-                albumShelf("random", "Random picks", uiState.randomAlbums, onAlbumClick, onSeeAllClick, coverArtUrlBuilder)
+                homeShelves(uiState).forEach { shelf ->
+                    albumShelf(shelf.key, shelf.title, shelf.albums, onAlbumClick, onSeeAllClick, coverArtUrlBuilder)
+                }
               }
               PullToRefreshContainer(
                   state = pullState,

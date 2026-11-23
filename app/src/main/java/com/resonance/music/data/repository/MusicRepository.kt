@@ -6,10 +6,23 @@ import com.resonance.music.data.api.models.*
 import com.resonance.music.data.download.OfflineLibrary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** The home screen's album shelves. [saved] carries the saved albums when the
+ *  server could not answer, in name order, for a single honest shelf. */
+data class HomeShelves(
+    val recent: List<AlbumItem> = emptyList(),
+    val newest: List<AlbumItem> = emptyList(),
+    val frequent: List<AlbumItem> = emptyList(),
+    val random: List<AlbumItem> = emptyList(),
+    val saved: List<AlbumItem> = emptyList(),
+    val fromSavedAlbums: Boolean = false
+)
 
 @Singleton
 class MusicRepository @Inject constructor(
@@ -91,14 +104,28 @@ class MusicRepository @Inject constructor(
 
     // --- Albums ---
 
+    private suspend fun albumListLive(type: String, size: Int, offset: Int, genre: String?): List<AlbumItem> {
+        val root = api.getAlbumList(type, size, offset, genre)
+        val env = root.response
+        if (!env.isOk) throw SubsonicException(env.error)
+        return env.albumList2?.album ?: emptyList()
+    }
+
+    /** One shelf, or null when the server could not answer at all. Cancellation
+     *  passes through; a server that answers with an error counts as no answer,
+     *  which is how the home screen has always treated a single failing shelf. */
+    private suspend fun albumListOrNull(type: String, size: Int): List<AlbumItem>? =
+        try {
+            albumListLive(type, size, 0, null)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+
     suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0, genre: String? = null): List<AlbumItem> =
         offlineOnError(
-            block = {
-                val root = api.getAlbumList(type, size, offset, genre)
-                val env = root.response
-                if (!env.isOk) throw SubsonicException(env.error)
-                env.albumList2?.album ?: emptyList()
-            },
+            block = { albumListLive(type, size, offset, genre) },
             // Server sort types are play statistics the saved copy cannot
             // reproduce; offline lists carry one honest order, name-sorted.
             fallback = {
@@ -119,6 +146,32 @@ class MusicRepository @Inject constructor(
         },
         fallback = { offlineGenres(savedSongs()) }
     )
+
+    /**
+     * The home screen's shelves in one call. When the network fails, the
+     * server's play statistics are gone with it: [fromSavedAlbums] then says
+     * the order is the saved copy's, and the screen drops the titles those
+     * shelves cannot back.
+     */
+    suspend fun getHomeShelves(size: Int = 20): HomeShelves = coroutineScope {
+        // All four shelves at once: the screen used to wait for the slowest of
+        // four parallel reads, and one slow server must not multiply that.
+        val recent = async { albumListOrNull("recent", size) }
+        val newest = async { albumListOrNull("newest", size) }
+        val frequent = async { albumListOrNull("frequent", size) }
+        val random = async { albumListOrNull("random", size) }
+        val live = listOf(recent.await(), newest.await(), frequent.await(), random.await())
+        if (live.all { it != null }) {
+            HomeShelves(recent = live[0]!!, newest = live[1]!!, frequent = live[2]!!, random = live[3]!!)
+        } else {
+            val saved = savedSongs()
+            HomeShelves(
+                saved = offlineAlbums(saved).take(size),
+                random = offlineRandomAlbums(saved, size),
+                fromSavedAlbums = true
+            )
+        }
+    }
 
     suspend fun getRecentAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("recent", size)
     suspend fun getNewestAlbums(size: Int = 20): List<AlbumItem> = getAlbumList("newest", size)
