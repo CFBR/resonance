@@ -31,11 +31,16 @@ class OfflineStorageTest {
 
     private lateinit var settings: SettingsStore
     private lateinit var storage: OfflineStorage
+    /** Whatever the installed app had picked before this test, restored after. */
+    private var previousRoot: String? = null
+    private var capturedRoot = false
 
     @Before
     fun setUp() = runBlocking {
         val treeUri = DocumentsContract.buildTreeDocumentUri(FakeDocumentsProvider.AUTHORITY, FakeDocumentsProvider.ROOT_ID)
         settings = SettingsStore(context)
+        previousRoot = settings.storedOfflineRoot()
+        capturedRoot = true
         settings.setOfflineRoot(treeUri.toString())
         settings.offlineRoot.first { it == treeUri.toString() }
         storage = OfflineStorage(context, settings)
@@ -44,7 +49,14 @@ class OfflineStorageTest {
 
     @After
     fun tearDown() = runBlocking {
-        settings.setOfflineRoot(null)
+        // Point the app back where it was; leaving the fake tree or a null root
+        // behind would strand a device that runs instrumentation between real
+        // uses. Skip it when setUp failed before it could read the old value,
+        // or the restore would write the very null this guard prevents.
+        if (capturedRoot) {
+            settings.setOfflineRoot(previousRoot)
+            assertEquals(previousRoot, settings.storedOfflineRoot())
+        }
         Unit
     }
 
