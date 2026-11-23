@@ -9,6 +9,8 @@ import android.os.Environment
 import com.resonance.music.data.api.SubsonicApi
 import com.resonance.music.data.api.SubsonicApiHelper
 import com.resonance.music.data.api.models.SongItem
+import com.resonance.music.data.repository.LyricsCache
+import com.resonance.music.data.repository.resolveLyrics
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -49,7 +51,8 @@ class SongDownloader @Inject constructor(
     private val auth: AuthRepository,
     private val storage: OfflineStorage,
     private val okHttp: OkHttpClient,
-    private val notifications: DownloadNotifications
+    private val notifications: DownloadNotifications,
+    private val lyricsCache: LyricsCache
 ) {
     private val manager = context.getSystemService(DownloadManager::class.java)
     private val preferences = context.getSharedPreferences("song_downloads", Context.MODE_PRIVATE)
@@ -179,7 +182,7 @@ class SongDownloader @Inject constructor(
             if (wifiOnly && !hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
             if (library.record(record.key) != record) continue
             if (record.downloadId >= 0 || record.relativePath != null) {
-                if (library.inspect(record).status == OfflineStatus.READY) mutex.withLock { cacheArtwork(record) }
+                if (library.inspect(record).status == OfflineStatus.READY) mutex.withLock { cacheArtwork(record); cacheLyrics(record) }
                 continue
             }
             try {
@@ -236,6 +239,7 @@ class SongDownloader @Inject constructor(
                                 if (exists) {
                                     library.replace(record, record.copy(downloadId = previousId))
                                     cacheArtwork(record)
+                                    cacheLyrics(record)
                                     return@withContext
                                 }
                             }
@@ -263,6 +267,7 @@ class SongDownloader @Inject constructor(
                 library.save(record.copy(downloadId = id))
             }
             cacheArtwork(record)
+            cacheLyrics(record)
         }
     }
 
@@ -322,13 +327,33 @@ class SongDownloader @Inject constructor(
             "(${error.javaClass.simpleName}: ${error.message})"
 
     private suspend fun completeTransfer(record: OfflineRecord, relativePath: String) {
-        if (library.replace(record, record.copy(relativePath = relativePath))) cacheArtwork(record)
+        if (library.replace(record, record.copy(relativePath = relativePath))) {
+            cacheArtwork(record)
+            cacheLyrics(record)
+        }
     }
 
     private suspend fun cacheArtwork(record: OfflineRecord) {
         val cover = record.song.coverArt ?: return
         if (record.wifiOnly && !hasUnmeteredWifi()) return
         fetchArtwork(cover, record.account)
+    }
+
+    private suspend fun cacheLyrics(record: OfflineRecord) {
+        if (record.wifiOnly && !hasUnmeteredWifi()) return
+        val song = record.song
+        try {
+            var resolved = resolveLyrics(api.getLyricsBySongId(song.id).response.lyricsList?.structuredLyrics.orEmpty(), null)
+            if (resolved == null) {
+                resolved = resolveLyrics(emptyList(), api.getLyrics(song.artist, song.title).response.lyrics)
+            }
+            resolved?.let { lyricsCache.put(song.id, it) }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Lyrics are optional; a failed fetch leaves them uncached, and
+            // the lyrics screen still fetches on view.
+        }
     }
 
     /**
