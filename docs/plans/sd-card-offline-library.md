@@ -197,6 +197,6 @@ Tracked as issues, in recommended order:
 5. #19 cache and prefetch lyrics
 6. #14 queue-build performance (the shuffle freeze)
 
-Known gaps to decide deliberately, not discover: offline artists have no
-biography, offline favorites reflect the state when each song was saved, and
-the Home screen still needs the server.
+Known gaps to decide deliberately, not discover: offline favorites reflect the
+state when each song was saved, offline playlists read their cached copy until
+the next online visit, and the Home screen still needs the server.

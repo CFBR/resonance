@@ -16,7 +16,8 @@ class MusicRepository @Inject constructor(
     private val api: SubsonicApi,
     private val apiHelper: SubsonicApiHelper,
     private val offlineLibrary: OfflineLibrary,
-    private val playlistCache: PlaylistCache
+    private val playlistCache: PlaylistCache,
+    private val artistInfoCache: ArtistInfoCache
 ) {
     /**
      * Songs with a file on the storage: the offline browse source. Records that
@@ -69,14 +70,23 @@ class MusicRepository @Inject constructor(
         fallback = { offlineArtistDetail(id, savedSongs()) }
     )
 
-    /** Artist biography + similar artists. Best-effort: older servers lack getArtistInfo2. */
+    /**
+     * Artist biography + similar artists. Best-effort: older servers lack
+     * getArtistInfo2. What the server returned is kept, so the introduction
+     * still shows with no connection; a failed fetch falls back to that copy.
+     */
     suspend fun getArtistInfo(id: String): ArtistInfo2? {
-        return try {
+        val live = try {
             val root = api.getArtistInfo2(id)
             if (!root.response.isOk) null else root.response.artistInfo2
         } catch (_: Exception) {
             null
         }
+        if (live != null) {
+            artistInfoCache.put(id, live)
+            return live
+        }
+        return artistInfoCache.get(id)
     }
 
     // --- Albums ---
