@@ -131,4 +131,29 @@ class DownloadsConsoleTest {
     fun `nothing to fetch yet is not a zero count`() {
         assertEquals("No covers needed yet.", artworkLine(ArtworkSummary(0, 0)))
     }
+
+    @Test
+    fun `a record waiting for Wi-Fi says so when there is none`() {
+        val waiting = track("q1", "Song", status = OfflineStatus.QUEUED).let {
+            it.copy(record = it.record.copy(wifiOnly = true))
+        }
+
+        assertEquals("Queued; waiting for Wi-Fi", queuedReason(waiting, unmeteredAvailable = false))
+    }
+
+    @Test
+    fun `a Wi-Fi record moves once unmetered Wi-Fi is back`() {
+        val waiting = track("q1", "Song", status = OfflineStatus.QUEUED).let {
+            it.copy(record = it.record.copy(wifiOnly = true))
+        }
+
+        assertEquals("Queued; waiting for a connection", queuedReason(waiting, unmeteredAvailable = true))
+    }
+
+    @Test
+    fun `an any-network record is waiting for a connection, not Wi-Fi`() {
+        val waiting = track("q1", "Song", status = OfflineStatus.QUEUED)
+
+        assertEquals("Queued; waiting for a connection", queuedReason(waiting, unmeteredAvailable = false))
+    }
 }

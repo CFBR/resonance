@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.resonance.music.data.download.*
 import com.resonance.music.data.repository.MusicRepository
+import com.resonance.music.data.repository.ServerHealth
 import com.resonance.music.playback.PlaybackManager
 import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,7 +26,8 @@ class DownloadsViewModel @Inject constructor(
     private val library: OfflineLibrary,
     private val downloader: SongDownloader,
     private val playback: PlaybackManager,
-    private val music: MusicRepository
+    private val music: MusicRepository,
+    private val serverHealth: ServerHealth
 ) : ViewModel() {
     val tracks = library.tracks
     val syncFavorites = library.syncFavorites
@@ -47,6 +49,14 @@ class DownloadsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val artworkRunning: StateFlow<Boolean> = downloader.workRunning("artwork")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Whether a Wi-Fi-only transfer may run now, for the waiting rows. */
+    val unmetered: StateFlow<Boolean> = flow {
+        while (true) {
+            emit(serverHealth.hasUnmetered())
+            delay(3_000)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     private val heartbeat: Flow<Unit> = flow {
         while (true) {
