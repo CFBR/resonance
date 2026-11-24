@@ -365,8 +365,9 @@ class SongDownloader @Inject constructor(
     }
 
     /**
-     * Fetches one cover into the permanent artwork store. Returns false when
-     * the server has none or the write fails; audio does not depend on it.
+     * Fetches one cover into the permanent artwork store. Audio never depends on
+     * it, so a failure is not fatal: the caller decides whether to try again or
+     * to treat the cover as absent from the server for good.
      */
     internal suspend fun fetchArtwork(cover: String, account: String): ArtworkOutcome {
         if (library.account() != account) return ArtworkOutcome.FAILED

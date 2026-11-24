@@ -3,7 +3,6 @@ package com.resonance.music.playback
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.work.*
 import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.data.repository.SettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -61,14 +60,6 @@ class PlaybackReporting @Inject constructor(
         }
     }
 
-    private fun scheduleFlush() {
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "scrobble_flush", ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<ScrobbleFlushWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-        )
-    }
+    private fun scheduleFlush() = scheduleQueuedWriteFlush(context)
     fun release() { scope.cancel() }
 }
