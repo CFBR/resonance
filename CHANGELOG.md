@@ -6,6 +6,15 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- A library at rest waits longer between checks. The poll that watched for
+  record changes re-parsed every saved record each minute whether or not
+  anything had changed, which spent tens of megabytes of heap a minute on a
+  full library; with a restored playback queue sharing the same heap the
+  churn reached the ceiling and the app died with OutOfMemoryError. Parsed
+  records are now reused until something writes to the store, a poll that
+  finds nothing doubles its pause (up to a cap), and any record change or
+  download event resets it.
+
 - A transfer run stops quietly when the connection is no longer Wi-Fi only,
   instead of failing the whole batch. The failure pushed the work into
   exponential backoff, which could park hours of transfers over a network

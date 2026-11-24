@@ -57,9 +57,47 @@ internal fun buildReadyIndex(tracks: List<OfflineTrack>): Map<String, OfflineTra
 }
 
 /** Two seconds while DownloadManager reports byte progress, otherwise a slow
- *  wakeup: record state changes arrive on the changes channel, not the poll. */
-internal fun pollDelayMs(tracks: List<OfflineTrack>): Long =
-    if (tracks.any { it.status == OfflineStatus.DOWNLOADING }) 2_000L else 60_000L
+ *  wakeup: record state changes arrive on the changes channel, not the poll.
+ *
+ * [quietPolls] counts consecutive polls that changed nothing. A library at
+ * rest still gets checked, but the pause between checks doubles up to a cap,
+ * because a poll that found nothing last time is unlikely to find something
+ * now: re-parsing a 9,000-record library every minute spends tens of
+ * megabytes of heap a minute for nothing, and on a heap that also carries a
+ * restored playback queue that churn reaches the ceiling and the app dies
+ * with OutOfMemoryError. Any event on the changes channel resets the count.
+ */
+internal fun pollDelayMs(tracks: List<OfflineTrack>, quietPolls: Int = 0): Long {
+    if (tracks.any { it.status == OfflineStatus.DOWNLOADING }) return 2_000L
+    var delay = 60_000L
+    repeat(quietPolls.coerceIn(0, 10)) { delay *= 2 }
+    return delay.coerceAtMost(QUIET_POLL_CAP_MS)
+}
+
+/** The longest a quiet library waits between checks. */
+internal const val QUIET_POLL_CAP_MS = 15 * 60_000L
+
+/**
+ * The parsed records, reused until something writes to the store.
+ *
+ * A write is the only way the records can change: every path that mutates
+ * one goes through this SharedPreferences, and the listener turns any write
+ * into a new revision. Re-parsing is nine thousand Gson deserialisations,
+ * so serving a poll from the cache where nothing changed keeps the steady
+ * state cheap; a miss falls through to [parse] exactly as before.
+ */
+internal class RecordsCache(
+    private val parse: (String) -> List<OfflineRecord>
+) {
+    private var cached: Triple<Long, String, List<OfflineRecord>>? = null
+
+    @Synchronized
+    fun records(revision: Long, account: String): List<OfflineRecord> {
+        val hit = cached
+        if (hit != null && hit.first == revision && hit.second == account) return hit.third
+        return parse(account).also { cached = Triple(revision, account, it) }
+    }
+}
 
 class OfflineLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -67,6 +105,8 @@ class OfflineLibrary @Inject constructor(
     private val storage: OfflineStorage
 ) {
     private val preferences = context.getSharedPreferences("offline_library", Context.MODE_PRIVATE)
+    /** Bumped by any write to the store, so the cache knows when to re-parse. */
+    private val revision = java.util.concurrent.atomic.AtomicLong(0)
     private val manager = context.getSystemService(DownloadManager::class.java)
     private val gson = Gson()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -79,7 +119,10 @@ class OfflineLibrary @Inject constructor(
     private val _syncFavorites = MutableStateFlow(false)
     val syncFavorites: StateFlow<Boolean> = _syncFavorites.asStateFlow()
 
+    private val recordCache = RecordsCache { account -> parseRecords(account) }
+
     init {
+        preferences.registerOnSharedPreferenceChangeListener { _, _ -> revision.incrementAndGet() }
         ContextCompat.registerReceiver(context, object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) { changes.trySend(Unit) }
         }, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
@@ -89,13 +132,18 @@ class OfflineLibrary @Inject constructor(
                 readyIndex = emptyMap()
                 _syncFavorites.value = false
                 if (generation % 2L != 0L) return@collectLatest
+                var quiet = 0
                 while (isActive) {
+                    val before = _tracks.value
                     refresh()
+                    val changed = before !== _tracks.value && before != _tracks.value
+                    if (changed) quiet = 0 else quiet++
                     // A record only moves on its own through DownloadManager byte
                     // progress; every other state change (save, retry, completion
-                    // broadcast) arrives on the changes channel, so QUEUED-only
-                    // libraries no longer burn a poll every two seconds.
-                    withTimeoutOrNull(pollDelayMs(_tracks.value)) { changes.receive() }
+                    // broadcast) arrives on the changes channel, which resets the
+                    // quiet count, and a library at rest doubles its pauses.
+                    val woke = withTimeoutOrNull(pollDelayMs(_tracks.value, quiet)) { changes.receive() }
+                    if (woke != null) quiet = 0
                     delay(500)
                 }
             }
@@ -106,11 +154,15 @@ class OfflineLibrary @Inject constructor(
         downloadKey(it.serverUrl.trimEnd('/'), it.username, "account")
     }
 
-    @Synchronized
-    fun records(account: String): List<OfflineRecord> = preferences.all.entries
-        .filter { it.key.startsWith("track_") }
-        .mapNotNull { runCatching { gson.fromJson(it.value as String, OfflineRecord::class.java) }.getOrNull() }
-        .filter { it.account == account }
+    fun records(account: String): List<OfflineRecord> =
+        recordCache.records(revision.get(), account)
+
+    private fun parseRecords(account: String): List<OfflineRecord> = synchronized(this) {
+        preferences.all.entries
+            .filter { it.key.startsWith("track_") }
+            .mapNotNull { runCatching { gson.fromJson(it.value as String, OfflineRecord::class.java) }.getOrNull() }
+            .filter { it.account == account }
+    }
 
     @Synchronized
     fun save(record: OfflineRecord) {
