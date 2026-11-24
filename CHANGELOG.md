@@ -11,6 +11,12 @@ All notable changes to Resonance will be documented in this file.
   exponential backoff, which could park hours of transfers over a network
   change that the work constraint would have handled.
 
+- A cover pass fetches eight covers at once instead of four. Measured
+  against the home server, four parallel fetches manage roughly seventy
+  covers a minute in good stretches and eight do no worse; a slow cover
+  stalls its whole window either way, so the wider gate is the cheap lever
+  on a pass that runs to thousands of covers.
+
 - The Downloads console says why a queued song has not moved: a record
   that waits for Wi-Fi says "waiting for Wi-Fi" rather than the generic
   "waiting for a connection", so a tablet on a hotspot can tell a policy

@@ -134,7 +134,11 @@ class SongDownloader @Inject constructor(
         val fetched = java.util.concurrent.atomic.AtomicInteger(0)
         val failures = FailureRun()
         coroutineScope {
-            val gate = Semaphore(4)
+            // Measured against the home server: four parallel fetches manage
+            // roughly seventy covers a minute and eight do no worse, while a
+            // slow cover stalls its whole window, so a wider gate is the cheap
+            // lever on a pass that runs to thousands of covers.
+            val gate = Semaphore(ARTWORK_PARALLELISM)
             covers.forEach { cover ->
                 launch {
                     gate.withPermit {
@@ -608,3 +612,6 @@ class SongDownloader @Inject constructor(
         queue(response.starred2?.song.orEmpty(), wifiOnly = true)
     }
 }
+
+/** Covers fetched at once during a pass. */
+internal const val ARTWORK_PARALLELISM = 8
