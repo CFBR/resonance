@@ -7,7 +7,10 @@ import com.resonance.music.data.repository.MusicRepository
 import com.resonance.music.playback.PlaybackManager
 import kotlinx.coroutines.Dispatchers
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -44,6 +47,30 @@ class DownloadsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val artworkRunning: StateFlow<Boolean> = downloader.workRunning("artwork")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val heartbeat: Flow<Unit> = flow {
+        while (true) {
+            emit(Unit)
+            delay(10_000)
+        }
+    }
+
+    /**
+     * How much of the artwork the offline library still lacks. Recounted on a
+     * slow beat as well as on change, because a pass takes hours and the row
+     * has to move while it runs; equal values do not recompose, so an idle
+     * screen costs nothing.
+     */
+    val artwork: StateFlow<ArtworkSummary?> = combine(tracks, heartbeat) { t, _ -> t }
+        .map { all ->
+            // Resolve the account once: asking per cover would hash the
+            // credentials a few thousand times per recount.
+            val account = library.account() ?: return@map null
+            val songs = all.filter { it.status == OfflineStatus.READY }.map { it.record.song }
+            artworkSummary(songs) { cover -> library.artworkFile(cover, account)?.isFile == true }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun setSyncFavorites(enabled: Boolean) = downloader.setSyncFavorites(enabled)
     fun setQuery(text: String) { query.value = text }

@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- The Downloads screen says how much artwork the offline library has and
+  lacks, for example "1768 of 5338 covers saved, 3570 missing". The only
+  counter used to be the notification during a pass, which disappeared with
+  the pass, so there was no way to tell how far along a multi-hour fetch had
+  got. The line is a snapshot and never claims to be fetching, because work
+  can sit in backoff against a slow server.
+
 - A playlist opened from the saved copy leaves out songs that were never
   downloaded instead of queueing them and failing at play time, and the
   playlist says so. A dropped song no longer shifts playback onto the wrong

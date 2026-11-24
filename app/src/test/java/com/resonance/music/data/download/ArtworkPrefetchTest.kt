@@ -39,4 +39,47 @@ class ArtworkPrefetchTest {
         val missing = missingArtworkCovers(listOf(song("a", "  "))) { false }
         assertTrue(missing.isEmpty())
     }
+
+    @Test
+    fun `the summary counts each cover once`() {
+        val summary = artworkSummary(listOf(song("a", "ar-1"), song("b", "ar-1"), song("c", "ar-2"))) { false }
+
+        assertEquals(0, summary.saved)
+        assertEquals(2, summary.total)
+        assertEquals(2, summary.missing)
+    }
+
+    @Test
+    fun `the summary counts what is already on the device`() {
+        val cached = setOf("ar-1")
+        val summary = artworkSummary(listOf(song("a", "ar-1"), song("b", "ar-2"))) { it in cached }
+
+        assertEquals(1, summary.saved)
+        assertEquals(2, summary.total)
+        assertEquals(1, summary.missing)
+    }
+
+    @Test
+    fun `a complete library reports nothing missing`() {
+        val summary = artworkSummary(listOf(song("a", "ar-1"))) { true }
+
+        assertEquals(1, summary.saved)
+        assertEquals(0, summary.missing)
+    }
+
+    @Test
+    fun `songs without covers count towards neither number`() {
+        val summary = artworkSummary(listOf(song("a", null), song("b", "  "), song("c", "ar-1"))) { false }
+
+        assertEquals(0, summary.saved)
+        assertEquals(1, summary.total)
+    }
+
+    @Test
+    fun `a cover padded with spaces is the cover it names`() {
+        val summary = artworkSummary(listOf(song("a", " ar-1 "))) { it == "ar-1" }
+
+        assertEquals(1, summary.saved)
+        assertEquals(1, summary.total)
+    }
 }
