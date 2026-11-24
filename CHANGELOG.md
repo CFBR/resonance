@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- The cover pass stops losing ground. A cover the server does not have is
+  recorded and skipped from then on, instead of counting as a failure and
+  stalling the pass behind it, and only a real fetch failure counts toward
+  giving up. Covers that will never arrive also drop out of the count on the
+  Downloads screen. Measured on the test tablet after the change: about 32
+  covers a minute where the pass had been managing one to three.
+
 - The Downloads screen says how much artwork the offline library has and
   lacks, for example "1768 of 5338 covers saved, 3570 missing". The only
   counter used to be the notification during a pass, which disappeared with
