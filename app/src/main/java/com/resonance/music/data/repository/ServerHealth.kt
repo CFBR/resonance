@@ -2,6 +2,7 @@ package com.resonance.music.data.repository
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.google.gson.JsonParseException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -80,7 +81,13 @@ class ServerHealth @Inject constructor(
             context.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: android.net.Network) = gate.markUp()
-                    override fun onLost(network: android.net.Network) = gate.markUp()
+
+                    // Losing the network is evidence the server is out of reach,
+                    // and it is the cheap moment to say so. A tunnel that holds
+                    // the default routes after Wi-Fi drops still looks online, so
+                    // waiting for the next read to fail costs that read its whole
+                    // timeout; starting down means it reads the saved copy instead.
+                    override fun onLost(network: android.net.Network) = gate.markDown()
                 }
             )
         }
@@ -108,12 +115,25 @@ class ServerHealth @Inject constructor(
 
     fun noteFailure() = gate.markDown()
 
-    /** Cheap check: is there a network at all? Airplane mode needs no timeout. */
+    /**
+     * Cheap check: is there a network the app can actually reach the server on?
+     *
+     * The active network is not enough to answer that. A VPN keeps the default
+     * routes after the network under it goes away, so it stays the active
+     * network and still reports INTERNET and VALIDATED while its packets go
+     * nowhere. Tailscale does exactly this for minutes after Wi-Fi drops, and
+     * every read in that window spends its whole timeout finding out. So the
+     * question asked here is whether any network the app can see is a real
+     * transport, with the VPN set aside: a tunnel over nothing is not a
+     * connection.
+     */
     private fun hasNetwork(): Boolean = runCatching {
         val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return true
-        val network = connectivity.activeNetwork ?: return false
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
-        capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        connectivity.allNetworks.any { network ->
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: return@any false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
     }.getOrDefault(true)
 
     companion object {
