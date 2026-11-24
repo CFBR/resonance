@@ -8,13 +8,24 @@ import com.google.gson.Gson
 import com.resonance.music.data.api.SubsonicApiHelper
 import com.resonance.music.data.api.models.SongItem
 import com.resonance.music.data.download.OfflineLibrary
+import com.resonance.music.data.repository.ServerHealth
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class MediaItems @Inject constructor(private val api: SubsonicApiHelper, private val offline: OfflineLibrary, private val artwork: ArtworkStore) {
+class MediaItems @Inject constructor(
+    private val api: SubsonicApiHelper,
+    private val offline: OfflineLibrary,
+    private val artwork: ArtworkStore,
+    private val health: ServerHealth
+) {
     fun build(song: SongItem): MediaItem? {
-        val uri = offline.localUri(song.id)?.toString() ?: api.getStreamUrl(song.id) ?: return null
+        val local = offline.localUri(song.id)?.toString()
+        // A song with no saved copy cannot play while the server is out of reach.
+        // Keeping it in the queue fails at load time and stops playback, so leave
+        // it out and let the queue move to the next one.
+        if (local == null && health.isOffline()) return null
+        val uri = local ?: api.getStreamUrl(song.id) ?: return null
         val art = song.coverArt?.let(artwork::uri)
         return MediaItem.Builder().setMediaId(song.id).setUri(uri).setMediaMetadata(
             MediaMetadata.Builder().setTitle(song.title).setArtist(song.artist).setAlbumTitle(song.album)
