@@ -51,7 +51,7 @@ class DownloadsViewModel @Inject constructor(
     private val heartbeat: Flow<Unit> = flow {
         while (true) {
             emit(Unit)
-            delay(5_000)
+            delay(10_000)
         }
     }
 
@@ -63,9 +63,11 @@ class DownloadsViewModel @Inject constructor(
      */
     val artwork: StateFlow<ArtworkSummary?> = combine(tracks, heartbeat) { t, _ -> t }
         .map { all ->
-            artworkSummary(all.filter { it.status == OfflineStatus.READY }.map { it.record.song }) { cover ->
-                library.artworkFile(cover)?.isFile == true
-            }
+            // Resolve the account once: asking per cover would hash the
+            // credentials a few thousand times per recount.
+            val account = library.account() ?: return@map null
+            val songs = all.filter { it.status == OfflineStatus.READY }.map { it.record.song }
+            artworkSummary(songs) { cover -> library.artworkFile(cover, account)?.isFile == true }
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
