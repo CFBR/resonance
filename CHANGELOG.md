@@ -6,6 +6,13 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Home and Library say when they are showing the saved copy, since the
+  saved copy and the live library look identical otherwise. The line hides
+  itself once the server answers, and the health gate now holds a dead
+  server closed while the app keeps reading, instead of spending another
+  connect attempt every twenty seconds; it still tries again within two
+  minutes, so a recovered server is noticed without a restart.
+
 - Files already on the storage are no longer reported missing when their
   folder names differ only in letter case. A card is exFAT and is
   case-insensitive, so a folder listed as "Alive Or Just Breathing" still

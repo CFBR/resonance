@@ -22,6 +22,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.resonance.music.ui.components.OfflineNotice
 import com.resonance.music.ui.components.AlbumCard
 import com.resonance.music.ui.components.AlbumListItem
 import com.resonance.music.ui.components.SlimTopBar
@@ -76,6 +77,8 @@ fun LibraryScreen(
                     )
                 }
             }
+
+            OfflineNotice()
 
             if (uiState.isLoading) {
                 Box(

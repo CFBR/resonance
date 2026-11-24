@@ -13,7 +13,7 @@ import kotlinx.coroutines.CancellationException
 
 class ServerHealthTest {
     private var now = 1_000L
-    private val gate = HealthGate(windowMs = 20_000L) { now }
+    private val gate = HealthGate(windowMs = 20_000L, clock = { now })
 
     @Test
     fun `a fresh gate lets live calls through`() {
@@ -33,6 +33,34 @@ class ServerHealthTest {
         gate.markDown()
         now += 20_000L
         assertFalse(gate.isDown())
+    }
+
+    @Test
+    fun `a read that serves the saved copy holds the gate closed`() {
+        gate.markDown()
+        // Browsing offline: a read every few seconds must not open the gate and
+        // spend another connect attempt.
+        repeat(5) {
+            now += 5_000L
+            assertTrue(gate.holdDown())
+            assertTrue(gate.isDown())
+        }
+    }
+
+    @Test
+    fun `the hold ends so a recovered server is noticed`() {
+        gate.markDown()
+        now += 119_000L
+        assertTrue(gate.holdDown())
+        // Past the hard limit the hold refuses, so the next read tries the server
+        // instead of serving the cache forever.
+        now += 2_000L
+        assertFalse(gate.holdDown())
+    }
+
+    @Test
+    fun `the hold is off before any failure`() {
+        assertFalse(gate.holdDown())
     }
 
     @Test
