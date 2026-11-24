@@ -187,7 +187,11 @@ class SongDownloader @Inject constructor(
         var remaining = pendingTransferCount(library.records(account), wifiOnly)
         for (record in library.records(account).filter { it.wifiOnly == wifiOnly && it.error == null }) {
             if (library.account() != account) return
-            if (wifiOnly && !hasUnmeteredWifi()) throw IOException("Waiting for unmetered Wi-Fi")
+            // The Wi-Fi-only lane exists for metered connections. Stop the run
+            // and let the work's network constraint bring it back; throwing here
+            // failed the whole batch and pushed it into exponential backoff, so a
+            // changed network state could park hours of transfers for nothing.
+            if (wifiOnly && !hasUnmeteredWifi()) return
             if (library.record(record.key) != record) continue
             if (record.downloadId >= 0 || record.relativePath != null) {
                 if (library.inspect(record).status == OfflineStatus.READY) mutex.withLock { cacheArtwork(record); cacheLyrics(record) }

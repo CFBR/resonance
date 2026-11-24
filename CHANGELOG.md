@@ -6,6 +6,11 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- A transfer run stops quietly when the connection is no longer Wi-Fi only,
+  instead of failing the whole batch. The failure pushed the work into
+  exponential backoff, which could park hours of transfers over a network
+  change that the work constraint would have handled.
+
 - The queue survives the app being killed. Android reclaims background apps
   routinely, and losing the queue meant re-picking everything offline. The
   queue, the track inside it and the position are now saved as it plays, and
