@@ -1,5 +1,6 @@
 package com.resonance.music.ui.screens.downloads
 
+import com.resonance.music.data.download.ArtworkSummary
 import com.resonance.music.data.download.OfflineStatus
 import com.resonance.music.data.download.OfflineTrack
 
@@ -52,4 +53,18 @@ internal fun consoleGroups(
             )
         }
         .sortedWith(compareBy({ it.artist?.lowercase() ?: "" }, { it.album.lowercase() }))
+}
+
+/**
+ * One line of plain facts about the covers the offline library has and lacks.
+ *
+ * It deliberately says nothing about a running pass. Work can sit in backoff
+ * for hours against a slow server, and a line that claims to be fetching would
+ * then be describing something that is not happening; the button beside it
+ * already says whether a pass exists.
+ */
+internal fun artworkLine(summary: ArtworkSummary): String = when {
+    summary.total == 0 -> "No covers needed yet."
+    summary.missing == 0 -> "${summary.saved} of ${summary.total} covers saved."
+    else -> "${summary.saved} of ${summary.total} covers saved, ${summary.missing} missing."
 }

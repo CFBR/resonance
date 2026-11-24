@@ -30,6 +30,7 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
     val exportRunning by viewModel.exportRunning.collectAsState()
     val importRunning by viewModel.importRunning.collectAsState()
     val artworkRunning by viewModel.artworkRunning.collectAsState()
+    val artwork by viewModel.artwork.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
     var removingGroup by remember { mutableStateOf<DownloadGroup?>(null) }
@@ -89,7 +90,21 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                 )
                 ListItem(
                     headlineContent = { Text("Fetch missing artwork") },
-                    supportingContent = { Text("Download a cover for every saved song that lacks one, so the offline library browses with complete artwork. Wi-Fi only.") },
+                    supportingContent = {
+                        Column {
+                            Text("Download a cover for every saved song that lacks one, so the offline library browses with complete artwork. Wi-Fi only.")
+                            // Nothing to say before the library has loaded, and
+                            // nothing to say for a library with no covers.
+                            artwork?.takeIf { it.total > 0 }?.let {
+                                Text(
+                                    text = artworkLine(it),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    },
                     trailingContent = {
                         if (artworkRunning) OutlinedButton(onClick = viewModel::cancelArtworkPrefetch) { Text("Stop") }
                         else OutlinedButton(onClick = viewModel::startArtworkPrefetch) { Text("Fetch") }

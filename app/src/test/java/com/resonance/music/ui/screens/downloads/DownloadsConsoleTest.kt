@@ -1,6 +1,7 @@
 package com.resonance.music.ui.screens.downloads
 
 import com.resonance.music.data.api.models.SongItem
+import com.resonance.music.data.download.ArtworkSummary
 import com.resonance.music.data.download.OfflineRecord
 import com.resonance.music.data.download.OfflineStatus
 import com.resonance.music.data.download.OfflineTrack
@@ -111,5 +112,23 @@ class DownloadsConsoleTest {
     fun `a search can empty the console`() {
         val tracks = listOf(track("a", "Only"))
         assertTrue(consoleGroups(tracks, "nope", DownloadFilter.ALL).isEmpty())
+    }
+
+    @Test
+    fun `the artwork line counts what is saved`() {
+        assertEquals(
+            "1800 of 4494 covers saved, 2694 missing.",
+            artworkLine(ArtworkSummary(saved = 1800, total = 4494))
+        )
+    }
+
+    @Test
+    fun `a complete set of covers says so`() {
+        assertEquals("4494 of 4494 covers saved.", artworkLine(ArtworkSummary(4494, 4494)))
+    }
+
+    @Test
+    fun `nothing to fetch yet is not a zero count`() {
+        assertEquals("No covers needed yet.", artworkLine(ArtworkSummary(0, 0)))
     }
 }
