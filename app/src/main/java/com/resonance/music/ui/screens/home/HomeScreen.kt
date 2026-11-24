@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.resonance.music.data.api.models.AlbumItem
+import com.resonance.music.ui.components.OfflineNotice
 import com.resonance.music.ui.components.AlbumCard
 import com.resonance.music.ui.components.SlimTopBar
 
@@ -82,6 +83,8 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 12.dp)
             ) {
+                item(key = "offline") { OfflineNotice() }
+
                 item(key = "greeting") {
                     Text(
                         text = greeting(),

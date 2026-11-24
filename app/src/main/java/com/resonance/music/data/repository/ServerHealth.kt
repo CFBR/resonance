@@ -19,18 +19,41 @@ import javax.inject.Singleton
  */
 internal class HealthGate(
     private val windowMs: Long,
-    private val clock: () -> Long
+    private val clock: () -> Long,
+    private val retryAfterMs: Long = RETRY_AFTER_MS
 ) {
     private var downUntil = 0L
+    private var hardUntil = 0L
 
     fun isDown(): Boolean = clock() < downUntil
 
     fun markDown() {
-        downUntil = clock() + windowMs
+        val now = clock()
+        downUntil = now + windowMs
+        hardUntil = now + retryAfterMs
+    }
+
+    /**
+     * Keeps the gate closed while the saved copy is in use, so a user browsing
+     * offline does not eat a connect attempt every window. Returns false once
+     * the hard limit passes: a server that came back must be noticed without a
+     * restart, and every read sliding the window would hide that forever.
+     */
+    fun holdDown(): Boolean {
+        val now = clock()
+        if (now >= hardUntil) return false
+        downUntil = now + windowMs
+        return true
     }
 
     fun markUp() {
         downUntil = 0L
+        hardUntil = 0L
+    }
+
+    companion object {
+        /** Longest the gate may stay held without trying the server again. */
+        const val RETRY_AFTER_MS = 2 * 60_000L
     }
 }
 
@@ -49,26 +72,44 @@ internal fun isUnreachable(error: Throwable): Boolean =
 class ServerHealth @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val gate = HealthGate(WINDOW_MS) { System.currentTimeMillis() }
+    private val gate = HealthGate(WINDOW_MS, clock = { System.currentTimeMillis() })
+
 
     /** A network came back, so stop trusting the old failure. */
     init {
         runCatching {
             context.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: android.net.Network) = gate.markUp()
-                    override fun onLost(network: android.net.Network) = gate.markUp()
+                    override fun onAvailable(network: android.net.Network) = markUp()
+                    override fun onLost(network: android.net.Network) = markUp()
                 }
             )
         }
     }
 
     /** True when a live read is worth attempting now. */
-    fun available(): Boolean = hasNetwork() && !gate.isDown()
+    fun available(): Boolean {
+        if (!hasNetwork()) return false
+        if (gate.isDown()) {
+            if (gate.holdDown()) return false
+            // Held long enough; let this read try the server so a recovered one
+            // is noticed.
+        }
+        return true
+    }
+
+    /**
+     * True while reads come from the saved copy, for a screen that wants to say
+     * so. Polled rather than pushed: the gate reopens on its own when the window
+     * lapses, and a screen that stayed open through a reconnect has to notice.
+     */
+    fun isOffline(): Boolean = !hasNetwork() || gate.isDown()
 
     fun noteSuccess() = gate.markUp()
 
     fun noteFailure() = gate.markDown()
+
+    private fun markUp() = gate.markUp()
 
     /** Cheap check: is there a network at all? Airplane mode needs no timeout. */
     private fun hasNetwork(): Boolean = runCatching {
