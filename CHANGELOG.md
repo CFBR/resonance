@@ -6,6 +6,12 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Favourites tapped while the server is out of reach are kept and sent when
+  it answers. The heart and the stored song change straight away, and the
+  queue holds the state the user last wanted, so toggling a song off and on
+  again offline sends one write, not two. A long press that the server never
+  hears is now the only thing a listener cannot do offline.
+
 - The cover pass stops losing ground. A cover the server does not have is
   recorded and skipped from then on, instead of counting as a failure and
   stalling the pass behind it, and only a real fetch failure counts toward
