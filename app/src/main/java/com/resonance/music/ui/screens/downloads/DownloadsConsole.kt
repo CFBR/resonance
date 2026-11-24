@@ -68,3 +68,14 @@ internal fun artworkLine(summary: ArtworkSummary): String = when {
     summary.missing == 0 -> "${summary.saved} of ${summary.total} covers saved."
     else -> "${summary.saved} of ${summary.total} covers saved, ${summary.missing} missing."
 }
+
+/**
+ * Why a queued record has not moved. A record set to wait for Wi-Fi sits behind
+ * an unmetered connection, so it says so when there is none; anything else is
+ * waiting for a connection at all. The distinction is what the console used to
+ * hide, and "N waiting" looked like a stall while the tablet sat on a hotspot.
+ */
+internal fun queuedReason(track: OfflineTrack, unmeteredAvailable: Boolean): String = when {
+    track.record.wifiOnly && !unmeteredAvailable -> "Queued; waiting for Wi-Fi"
+    else -> "Queued; waiting for a connection"
+}

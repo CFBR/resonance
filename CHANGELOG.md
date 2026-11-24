@@ -11,6 +11,11 @@ All notable changes to Resonance will be documented in this file.
   exponential backoff, which could park hours of transfers over a network
   change that the work constraint would have handled.
 
+- The Downloads console says why a queued song has not moved: a record
+  that waits for Wi-Fi says "waiting for Wi-Fi" rather than the generic
+  "waiting for a connection", so a tablet on a hotspot can tell a policy
+  from a stall.
+
 - Home offline keeps its history. The last live Home is kept, so offline
   shows Recently played, Newest additions, Most played and Random picks as
   the last online visit saw them, under the saved-copy notice, instead of

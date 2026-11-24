@@ -30,6 +30,7 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
     val exportRunning by viewModel.exportRunning.collectAsState()
     val importRunning by viewModel.importRunning.collectAsState()
     val artworkRunning by viewModel.artworkRunning.collectAsState()
+    val unmetered by viewModel.unmetered.collectAsState()
     val artwork by viewModel.artwork.collectAsState()
     val download = LocalSongDownload.current
     var removing by remember { mutableStateOf<OfflineTrack?>(null) }
@@ -155,7 +156,7 @@ fun DownloadsScreen(onBack: () -> Unit, viewModel: DownloadsViewModel = hiltView
                             headlineContent = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             supportingContent = { Text(when (track.status) {
                                 OfflineStatus.READY -> listOfNotNull(song.artist, song.album).joinToString(" • ")
-                                OfflineStatus.QUEUED -> "Queued; waiting for a connection"
+                                OfflineStatus.QUEUED -> queuedReason(track, unmetered)
                                 OfflineStatus.DOWNLOADING -> if (track.total > 0) "Downloading ${(track.bytes * 100 / track.total).coerceIn(0, 100)}%" else "Downloading"
                                 OfflineStatus.FAILED -> track.record.error ?: "Download failed"
                             }, maxLines = 2, overflow = TextOverflow.Ellipsis) },

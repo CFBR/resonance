@@ -111,6 +111,21 @@ class ServerHealth @Inject constructor(
      */
     fun isOffline(): Boolean = !hasNetwork() || gate.isDown()
 
+    /**
+     * True when a transfer that waits for unmetered Wi-Fi may run now. Uses the
+     * same real-transport rule as [hasNetwork]: the VPN set aside, a tunnel is
+     * not a connection to transfer over.
+     */
+    fun hasUnmetered(): Boolean = runCatching {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return true
+        connectivity.allNetworks.any { network ->
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: return@any false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) &&
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
+    }.getOrDefault(true)
+
     fun noteSuccess() = gate.markUp()
 
     fun noteFailure() = gate.markDown()
