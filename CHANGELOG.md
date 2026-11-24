@@ -6,6 +6,14 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- The queue survives the app being killed. Android reclaims background apps
+  routinely, and losing the queue meant re-picking everything offline. The
+  queue, the track inside it and the position are now saved as it plays, and
+  the next launch puts them back paused, so nothing starts by itself and no
+  stream is fetched. The queue is large and changes rarely, the position is
+  small and changes constantly, so they are stored apart rather than
+  rewriting the whole queue for a timestamp.
+
 - Favourites tapped while the server is out of reach are kept and sent when
   it answers. The heart and the stored song change straight away, and the
   queue holds the state the user last wanted, so toggling a song off and on

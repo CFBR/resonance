@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.media3.session.SessionCommand
 import com.resonance.music.data.api.models.SongItem
+import com.resonance.music.data.download.OfflineLibrary
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,9 @@ enum class RepeatMode { OFF, ALL, ONE }
 @Singleton
 class PlaybackManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val mediaItems: MediaItems
+    private val mediaItems: MediaItems,
+    private val offline: OfflineLibrary,
+    private val queueStore: QueueStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -142,9 +145,60 @@ class PlaybackManager @Inject constructor(
         // from the session's media items so the mini player / queue stay populated.
         if (_queue.value.isEmpty() && c.mediaItemCount > 0) {
             _queue.value = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).toSongItem() }
+            rememberQueue()
+        } else if (_queue.value.isEmpty() && c.mediaItemCount == 0) {
+            // Nothing playing: put back what the user had lined up before the
+            // process died, paused, so reopening the app starts no audio.
+            restoreQueue(c)
         }
         syncNowPlaying()
         if (c.isPlaying) startPositionUpdates()
+    }
+
+    /**
+     * Puts the saved queue back, paused. Items are built off the main thread
+     * because an "everything, shuffled" queue runs to thousands of songs, and
+     * nothing is prepared: reopening the app must not spend data on a stream.
+     */
+    private fun restoreQueue(c: MediaController) {
+        scope.launch {
+            // Reading the saved queue is a few megabytes of JSON, so it happens
+            // off the main thread along with building the items.
+            val built = withContext(Dispatchers.Default) {
+                // The credentials are read from a store at startup, so the
+                // account can still be unknown this early. Wait for it rather
+                // than dropping the queue on the floor.
+                var account = offline.account()
+                var waited = 0L
+                while (account == null && waited < ACCOUNT_WAIT_MS) {
+                    delay(100)
+                    waited += 100
+                    account = offline.account()
+                }
+                account ?: return@withContext null
+                val snapshot = queueStore.snapshot()
+                if (snapshot == null || snapshot.account != account) return@withContext null
+                val place = queueStore.place()
+                builtQueue(snapshot.songs, place?.index ?: 0) { buildMediaItem(it) } to place
+            } ?: return@launch
+            val (queue, place) = built
+            if (queue.items.isEmpty()) return@launch
+            Log.d("PlaybackManager", "Restored ${queue.items.size} queued songs")
+            _queue.value = queue.songs
+            c.setMediaItems(queue.items, queue.startIndex, place?.positionMs ?: 0L)
+            syncNowPlaying()
+        }
+    }
+
+    /** Remembers the queue and where playback is, for the next process. */
+    private fun rememberQueue() {
+        val account = offline.account() ?: return
+        val songs = _queue.value
+        val place = controller?.let { QueuePlace(it.currentMediaItemIndex, it.currentPosition) }
+        scope.launch(Dispatchers.IO) {
+            queueStore.saveSnapshot(if (songs.isEmpty()) null else QueueSnapshot(account, songs))
+            queueStore.savePlace(if (songs.isEmpty()) null else place)
+        }
     }
 
     private fun syncNowPlaying() {
@@ -188,6 +242,7 @@ class PlaybackManager @Inject constructor(
             if (built.items.isEmpty()) return@launch
             _queue.value = built.songs
             c.setMediaItems(built.items, built.startIndex, 0L)
+            rememberQueue()
             c.prepare()
             c.play()
             syncNowPlaying()
@@ -215,10 +270,12 @@ class PlaybackManager @Inject constructor(
         if (songs.isEmpty()) return
         val c = controller
         if (c == null || c.mediaItemCount == 0) { playSongs(songs); return }
-        val (items, _) = buildItemsAndSongs(songs)
+        val (items, kept) = buildItemsAndSongs(songs)
         if (items.isEmpty()) return
         val insertIndex = (c.currentMediaItemIndex + 1).coerceAtMost(c.mediaItemCount)
         c.addMediaItems(insertIndex, items)
+        _queue.update { queue -> queue.toMutableList().apply { addAll(insertIndex, kept) } }
+        rememberQueue()
     }
 
     /** Append songs to the end of the queue. Starts a new queue if nothing is playing. */
@@ -226,9 +283,11 @@ class PlaybackManager @Inject constructor(
         if (songs.isEmpty()) return
         val c = controller
         if (c == null || c.mediaItemCount == 0) { playSongs(songs); return }
-        val (items, _) = buildItemsAndSongs(songs)
+        val (items, kept) = buildItemsAndSongs(songs)
         if (items.isEmpty()) return
         c.addMediaItems(c.mediaItemCount, items)
+        _queue.update { queue -> queue + kept }
+        rememberQueue()
     }
 
     /** Remove the queue entry at [index]. If it is the current track, Media3 advances to the next. */
@@ -236,6 +295,10 @@ class PlaybackManager @Inject constructor(
         val c = controller ?: return
         if (index !in 0 until c.mediaItemCount) return
         c.removeMediaItem(index)
+        _queue.update { queue ->
+            if (index in queue.indices) queue.toMutableList().apply { removeAt(index) } else queue
+        }
+        rememberQueue()
         syncNowPlaying()
     }
 
@@ -244,6 +307,10 @@ class PlaybackManager @Inject constructor(
         val c = controller ?: return
         if (from !in 0 until c.mediaItemCount || to !in 0 until c.mediaItemCount || from == to) return
         c.moveMediaItem(from, to)
+        _queue.update { queue ->
+            if (from in queue.indices && to in queue.indices) queue.toMutableList().apply { add(to, removeAt(from)) } else queue
+        }
+        rememberQueue()
         syncNowPlaying()
     }
 
@@ -252,6 +319,7 @@ class PlaybackManager @Inject constructor(
         val c = controller ?: return
         c.clearMediaItems()
         _queue.value = emptyList()
+        rememberQueue()
         syncNowPlaying()
     }
 
@@ -330,3 +398,8 @@ class PlaybackManager @Inject constructor(
     }
 
 }
+
+private const val PLACE_SAVE_MS = 10_000L
+
+/** How long to wait for the stored credentials before giving up on a restore. */
+private const val ACCOUNT_WAIT_MS = 3_000L
