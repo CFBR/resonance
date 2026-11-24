@@ -6,6 +6,11 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- A playlist opened from the saved copy leaves out songs that were never
+  downloaded instead of queueing them and failing at play time, and the
+  playlist says so. A dropped song no longer shifts playback onto the wrong
+  track: the start is counted in the songs that can play.
+
 - A tunnel left over after Wi-Fi drops no longer counts as a connection.
   Android keeps the VPN as the active network with its default routes after
   the network under it goes away, so the app believed it was online and

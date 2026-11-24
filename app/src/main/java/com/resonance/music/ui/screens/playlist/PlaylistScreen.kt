@@ -18,8 +18,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.resonance.music.ui.components.OfflineStateViewModel
 import com.resonance.music.ui.components.SongActions
 import com.resonance.music.ui.components.SongListItem
 
@@ -33,6 +35,7 @@ fun PlaylistScreen(
     viewModel: PlaylistViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val offline by hiltViewModel<OfflineStateViewModel>().offline.collectAsStateWithLifecycle()
     val download = com.resonance.music.ui.components.LocalCollectionDownload.current
 
     LaunchedEffect(playlistId) {
@@ -174,6 +177,15 @@ fun PlaylistScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Shuffle")
                             }
+                        }
+
+                        if (offline) {
+                            Text(
+                                text = "Songs without a saved copy are skipped while the server is out of reach.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
                         }
                     }
                 }

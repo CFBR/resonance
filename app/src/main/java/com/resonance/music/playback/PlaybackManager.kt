@@ -182,10 +182,12 @@ class PlaybackManager @Inject constructor(
         scope.launch {
             // Building thousands of media items serializes every song; keep
             // that off the main thread even though each one is cheap now.
-            val (items, kept) = withContext(Dispatchers.Default) { buildItemsAndSongs(songs) }
-            if (items.isEmpty()) return@launch
-            _queue.value = kept
-            c.setMediaItems(items, startIndex.coerceIn(0, items.size - 1), 0L)
+            val built = withContext(Dispatchers.Default) {
+                builtQueue(songs, startIndex) { buildMediaItem(it) }
+            }
+            if (built.items.isEmpty()) return@launch
+            _queue.value = built.songs
+            c.setMediaItems(built.items, built.startIndex, 0L)
             c.prepare()
             c.play()
             syncNowPlaying()
@@ -193,10 +195,10 @@ class PlaybackManager @Inject constructor(
     }
 
     /** Build media items and the matching song list together so [_queue] never
-     *  drifts from the controller timeline when a stream URL is missing. */
+     *  drifts from the controller timeline when a song cannot play. */
     private fun buildItemsAndSongs(songs: List<SongItem>): Pair<List<MediaItem>, List<SongItem>> {
-        val pairs = songs.mapNotNull { song -> buildMediaItem(song)?.let { it to song } }
-        return pairs.map { it.first } to pairs.map { it.second }
+        val built = builtQueue(songs, 0) { buildMediaItem(it) }
+        return built.items to built.songs
     }
 
     /** Seek to a queue position without rebuilding the queue (fast in-place jump). */
