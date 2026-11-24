@@ -6,6 +6,8 @@ import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Environment
+import coil.network.HttpException
+import coil.request.ErrorResult
 import com.resonance.music.data.api.SubsonicApi
 import com.resonance.music.data.api.SubsonicApiHelper
 import com.resonance.music.data.api.models.SongItem
@@ -125,28 +127,34 @@ class SongDownloader @Inject constructor(
      */
     suspend fun prefetchArtwork(account: String): Int {
         if (library.account() != account) return 0
-        val songs = library.browseSongs()
-        val covers = missingArtworkCovers(songs) { cover -> library.artworkFile(cover, account)?.isFile == true }
+        val absent = library.absentArtwork()
+        val covers = missingArtworkCovers(library.browseSongs()) { cover ->
+            cover in absent || library.artworkFile(cover, account)?.isFile == true
+        }
         val fetched = java.util.concurrent.atomic.AtomicInteger(0)
-        val failures = java.util.concurrent.atomic.AtomicInteger(0)
+        val failures = FailureRun()
         coroutineScope {
             val gate = Semaphore(4)
             covers.forEach { cover ->
                 launch {
                     gate.withPermit {
-                        if (failures.get() >= 20) return@withPermit
-                        if (fetchArtwork(cover, account)) {
-                            failures.set(0)
-                            fetched.incrementAndGet()
-                        } else {
-                            failures.incrementAndGet()
+                        if (failures.exhausted()) return@withPermit
+                        when (fetchArtwork(cover, account)) {
+                            ArtworkOutcome.SAVED -> {
+                                failures.success()
+                                fetched.incrementAndGet()
+                            }
+                            // The server has no image: settle it so this pass and
+                            // every later one skip it, and keep going.
+                            ArtworkOutcome.ABSENT -> library.markArtworkAbsent(cover)
+                            ArtworkOutcome.FAILED -> failures.failure()
                         }
                         notifications.updateArtwork(fetched.get(), covers.size)
                     }
                 }
             }
         }
-        if (failures.get() >= 20) throw IOException("The network dropped while fetching artwork")
+        if (failures.exhausted()) throw IOException("The network dropped while fetching artwork")
         return fetched.get()
     }
 
@@ -336,7 +344,7 @@ class SongDownloader @Inject constructor(
     private suspend fun cacheArtwork(record: OfflineRecord) {
         val cover = record.song.coverArt ?: return
         if (record.wifiOnly && !hasUnmeteredWifi()) return
-        fetchArtwork(cover, record.account)
+        if (fetchArtwork(cover, record.account) == ArtworkOutcome.ABSENT) library.markArtworkAbsent(cover)
     }
 
     private suspend fun cacheLyrics(record: OfflineRecord) {
@@ -357,13 +365,14 @@ class SongDownloader @Inject constructor(
     }
 
     /**
-     * Fetches one cover into the permanent artwork store. Returns false when
-     * the server has none or the write fails; audio does not depend on it.
+     * Fetches one cover into the permanent artwork store. Audio never depends on
+     * it, so a failure is not fatal: the caller decides whether to try again or
+     * to treat the cover as absent from the server for good.
      */
-    suspend fun fetchArtwork(cover: String, account: String): Boolean {
-        if (library.account() != account) return false
-        val file = library.artworkFile(cover, account) ?: return false
-        if (file.exists()) return true
+    internal suspend fun fetchArtwork(cover: String, account: String): ArtworkOutcome {
+        if (library.account() != account) return ArtworkOutcome.FAILED
+        val file = library.artworkFile(cover, account) ?: return ArtworkOutcome.FAILED
+        if (file.exists()) return ArtworkOutcome.SAVED
         try {
             val result = context.imageLoader.execute(ImageRequest.Builder(context)
                 .data(apiHelper.getCoverArtUrl(cover, 600)).size(600).allowHardware(false).build())
@@ -372,13 +381,18 @@ class SongDownloader @Inject constructor(
                 val temporary = java.io.File(file.path + ".tmp")
                 temporary.outputStream().use { result.drawable.toBitmap().compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 temporary.renameTo(file)
-                return true
+                return ArtworkOutcome.SAVED
+            }
+            // A 404 is the server saying the image does not exist. Anything else
+            // is a fetch that may work next time.
+            if (result is ErrorResult && imageIsAbsent((result.throwable as? HttpException)?.response?.code)) {
+                return ArtworkOutcome.ABSENT
             }
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (_: Exception) {
         }
-        return false
+        return ArtworkOutcome.FAILED
     }
 
     fun setSyncFavorites(enabled: Boolean) {

@@ -67,7 +67,12 @@ class DownloadsViewModel @Inject constructor(
             // credentials a few thousand times per recount.
             val account = library.account() ?: return@map null
             val songs = all.filter { it.status == OfflineStatus.READY }.map { it.record.song }
-            artworkSummary(songs) { cover -> library.artworkFile(cover, account)?.isFile == true }
+            val absent = library.absentArtwork()
+            artworkSummary(
+                songs = songs,
+                isCached = { cover -> library.artworkFile(cover, account)?.isFile == true },
+                isAbsent = { cover -> cover in absent }
+            )
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

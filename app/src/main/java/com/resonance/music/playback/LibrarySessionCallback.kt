@@ -29,7 +29,8 @@ class LibrarySessionCallback @Inject constructor(
     private val offline: OfflineLibrary,
     private val downloader: SongDownloader,
     private val auth: AuthRepository,
-    private val access: ControllerAccess
+    private val access: ControllerAccess,
+    private val favorites: FavoriteQueue
 ) : MediaLibrarySession.Callback {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var favoriteBusy = false
@@ -147,9 +148,21 @@ class LibrarySessionCallback @Inject constructor(
         val generation = auth.generation.value
         favoriteBusy = true
         return try {
-            withContext(Dispatchers.IO) { if (song.starred == null) music.star(song.id) else music.unstar(song.id) }
+            val starred = song.starred == null
+            val delivered = try {
+                withContext(Dispatchers.IO) { if (starred) music.star(song.id) else music.unstar(song.id) }
+                true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                false
+            }
+            // The server may be out of reach. Keep the intent: the heart and the
+            // stored song show it now, and the queued write sends it when the
+            // server answers.
+            if (!delivered) favorites.record(song.id, starred)
             if (auth.generation.value != generation || offline.account() != account) return SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE)
-            val updated = song.copy(starred = if (song.starred == null) "starred" else null)
+            val updated = song.copy(starred = if (starred) "starred" else null)
             val updatedItem = items.build(updated) ?: return SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE)
             for (index in 0 until session.player.mediaItemCount) {
                 if (session.player.getMediaItemAt(index).mediaId == item.mediaId) session.player.replaceMediaItem(index, updatedItem)

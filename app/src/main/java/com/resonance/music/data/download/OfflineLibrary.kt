@@ -217,6 +217,20 @@ class OfflineLibrary @Inject constructor(
 
     fun artworkUri(coverArt: String): String? = artworkFile(coverArt)?.takeIf { it.isFile }?.let { Uri.fromFile(it).toString() }
 
+    /**
+     * Covers the server answered without an image for. Kept so a later pass does
+     * not spend its first attempts on the same covers and stop again, and so the
+     * status line stops counting artwork that will never arrive.
+     */
+    fun absentArtwork(): Set<String> =
+        preferences.getStringSet(KEY_ARTWORK_ABSENT, emptySet()).orEmpty().toSet()
+
+    fun markArtworkAbsent(coverArt: String) {
+        synchronized(this) {
+            preferences.edit().putStringSet(KEY_ARTWORK_ABSENT, absentArtwork() + coverArt).commit()
+        }
+    }
+
     suspend fun remove(track: OfflineTrack) = withContext(Dispatchers.IO) {
         synchronized(this@OfflineLibrary) {
             if (track.record.account != account()) return@withContext
@@ -240,5 +254,9 @@ class OfflineLibrary @Inject constructor(
         val account = account() ?: return
         preferences.edit().putBoolean("favorites_$account", enabled).apply()
         _syncFavorites.value = enabled
+    }
+
+    private companion object {
+        const val KEY_ARTWORK_ABSENT = "artwork_absent"
     }
 }
