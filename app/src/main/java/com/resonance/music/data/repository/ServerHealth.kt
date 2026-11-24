@@ -74,14 +74,13 @@ class ServerHealth @Inject constructor(
 ) {
     private val gate = HealthGate(WINDOW_MS, clock = { System.currentTimeMillis() })
 
-
     /** A network came back, so stop trusting the old failure. */
     init {
         runCatching {
             context.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: android.net.Network) = markUp()
-                    override fun onLost(network: android.net.Network) = markUp()
+                    override fun onAvailable(network: android.net.Network) = gate.markUp()
+                    override fun onLost(network: android.net.Network) = gate.markUp()
                 }
             )
         }
@@ -108,8 +107,6 @@ class ServerHealth @Inject constructor(
     fun noteSuccess() = gate.markUp()
 
     fun noteFailure() = gate.markDown()
-
-    private fun markUp() = gate.markUp()
 
     /** Cheap check: is there a network at all? Airplane mode needs no timeout. */
     private fun hasNetwork(): Boolean = runCatching {
