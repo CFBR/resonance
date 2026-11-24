@@ -295,7 +295,9 @@ class PlaybackManager @Inject constructor(
         val c = controller ?: return
         if (index !in 0 until c.mediaItemCount) return
         c.removeMediaItem(index)
-        _queue.update { queue -> queue.toMutableList().apply { removeAt(index.coerceIn(0, lastIndex)) } }
+        _queue.update { queue ->
+            if (index in queue.indices) queue.toMutableList().apply { removeAt(index) } else queue
+        }
         rememberQueue()
         syncNowPlaying()
     }
@@ -305,7 +307,9 @@ class PlaybackManager @Inject constructor(
         val c = controller ?: return
         if (from !in 0 until c.mediaItemCount || to !in 0 until c.mediaItemCount || from == to) return
         c.moveMediaItem(from, to)
-        _queue.update { queue -> queue.toMutableList().apply { add(to, removeAt(from)) } }
+        _queue.update { queue ->
+            if (from in queue.indices && to in queue.indices) queue.toMutableList().apply { add(to, removeAt(from)) } else queue
+        }
         rememberQueue()
         syncNowPlaying()
     }
