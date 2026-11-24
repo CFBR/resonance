@@ -6,6 +6,17 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- Files already on the storage are no longer reported missing when their
+  folder names differ only in letter case. A card is exFAT and is
+  case-insensitive, so a folder listed as "Alive Or Just Breathing" still
+  holds the file a manifest calls "Alive or Just Breathing"; comparing
+  names exactly made those files invisible, so Import skipped them and
+  the queue offered to download duplicates. The storage walk now matches
+  a name exactly first and ignoring case second, and only when that
+  match is unambiguous. On the test tablet this brought the whole
+  manifest in: 8,890 songs saved became 9,445, with 318 stuck records
+  and 14 failed ones resolved without transferring anything.
+
 - Offline views reach the saved copy much faster. The first screen opened
   with no reachable server still waits one connection attempt, now limited
   to ten seconds instead of thirty; after that failure the app remembers it

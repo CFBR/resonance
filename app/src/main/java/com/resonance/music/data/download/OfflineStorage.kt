@@ -204,10 +204,14 @@ class OfflineStorage @Inject constructor(
         }
 
     private fun deleteChild(root: Uri, parent: DirEntry, name: String) {
-        val documentId = parent.children[name] ?: return
-        val uri = DocumentsContract.buildDocumentUriUsingTree(root, documentId)
+        // The same rule the read path uses: exact first, then an unambiguous
+        // case-insensitive match, so a drifted folder name can still be removed.
+        val key = parent.children.keys.firstOrNull { it == name }
+            ?: parent.children.keys.singleOrNull { it.lowercase() == name.lowercase() }
+            ?: return
+        val uri = DocumentsContract.buildDocumentUriUsingTree(root, parent.children.getValue(key))
         if (runCatching { DocumentsContract.deleteDocument(resolver, uri) }.getOrDefault(false)) {
-            parent.children.remove(name)
+            parent.children.remove(key)
         }
     }
 
@@ -224,7 +228,7 @@ class OfflineStorage @Inject constructor(
             val cached = directories[path]
             if (cached != null) { entry = cached; continue }
             loadChildren(root, entry)
-            var childId = entry.children[segment]
+            var childId = matchChild(entry.children, segment)
             if (childId == null && create) {
                 childId = createChild(root, entry, segment) ?: return null
             }
