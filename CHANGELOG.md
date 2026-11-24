@@ -6,6 +6,14 @@ All notable changes to Resonance will be documented in this file.
 
 ### Added
 
+- A tunnel left over after Wi-Fi drops no longer counts as a connection.
+  Android keeps the VPN as the active network with its default routes after
+  the network under it goes away, so the app believed it was online and
+  waited out a full timeout on every read, sometimes on a blank screen. The
+  network check now asks whether any visible network is a real transport,
+  with the VPN set aside, and losing a network counts as evidence the server
+  is out of reach straight away.
+
 - Home and Library say when they are showing the saved copy, since the
   saved copy and the live library look identical otherwise. The line hides
   itself once the server answers, and the health gate now holds a dead
