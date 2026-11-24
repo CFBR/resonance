@@ -11,6 +11,12 @@ All notable changes to Resonance will be documented in this file.
   exponential backoff, which could park hours of transfers over a network
   change that the work constraint would have handled.
 
+- Home offline keeps its history. The last live Home is kept, so offline
+  shows Recently played, Newest additions, Most played and Random picks as
+  the last online visit saw them, under the saved-copy notice, instead of
+  dropping the history shelves for a shorter saved-only view. A first run
+  that has never been online still falls back to the saved-only view.
+
 - The queue survives the app being killed. Android reclaims background apps
   routinely, and losing the queue meant re-picking everything offline. The
   queue, the track inside it and the position are now saved as it plays, and

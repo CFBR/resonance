@@ -31,6 +31,7 @@ class MusicRepository @Inject constructor(
     private val offlineLibrary: OfflineLibrary,
     private val playlistCache: PlaylistCache,
     private val artistInfoCache: ArtistInfoCache,
+    private val homeCache: HomeCache,
     private val serverHealth: ServerHealth
 ) {
     /**
@@ -178,14 +179,23 @@ class MusicRepository @Inject constructor(
         val random = async { albumListOrNull("random", size) }
         val live = listOf(recent.await(), newest.await(), frequent.await(), random.await())
         if (live.all { it != null }) {
-            HomeShelves(recent = live[0]!!, newest = live[1]!!, frequent = live[2]!!, random = live[3]!!)
+            val shelves = HomeShelves(recent = live[0]!!, newest = live[1]!!, frequent = live[2]!!, random = live[3]!!)
+            // Keep the last good Home for offline: play history is the part of
+            // Home the saved copy cannot reconstruct.
+            homeCache.put(shelves)
+            shelves
         } else {
-            val saved = savedSongs()
-            HomeShelves(
-                saved = offlineAlbums(saved).take(size),
-                random = offlineRandomAlbums(saved, size),
-                fromSavedAlbums = true
-            )
+            // Replay the last live Home if there is one; the notice says the
+            // screen is a saved copy, and a shelf entry taps into whatever of
+            // that album is saved.
+            homeCache.get() ?: run {
+                val saved = savedSongs()
+                HomeShelves(
+                    saved = offlineAlbums(saved).take(size),
+                    random = offlineRandomAlbums(saved, size),
+                    fromSavedAlbums = true
+                )
+            }
         }
     }
 
